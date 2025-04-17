@@ -2,10 +2,63 @@
 .env
 
 # Python virtual environment
+.venv/
 venv/
 __pycache__/
 *.pyc
 *.pyo
 
 # Service account keys (if downloaded locally)
-*.json 
+*.json
+
+# Bot configurations (explicitly ignore)
+bot_configs.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment
+.env
+.venv
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Service account
+service-account-key.json
+
+# Specific bot config file (ensure ignored)
+bot_configs.json 

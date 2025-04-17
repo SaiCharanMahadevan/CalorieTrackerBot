@@ -18,7 +18,7 @@ WORKSHEET_NAME = os.getenv('WORKSHEET_NAME', 'Sheet1') # Adjust if your sheet na
 # Path to your Google Cloud Service Account JSON key file
 # IMPORTANT: Store this file securely and DO NOT commit it to version control.
 # Consider using GCP Secret Manager for production deployments.
-SERVICE_ACCOUNT_FILE = os.getenv('SERVICE_ACCOUNT_FILE', 'path/to/your/service_account.json')
+SERVICE_ACCOUNT_JSON = os.getenv('SERVICE_ACCOUNT_JSON', 'path/to/your/service_account.json')
 # Google API Scopes needed
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -28,7 +28,7 @@ SCOPES = [
 # --- Google Gemini API Configuration ---
 # Replace with your actual Gemini API Key
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'YOUR_GEMINI_API_KEY_PLACEHOLDER')
-GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-2.5-pro-exp-03-25') # Do not change this
+GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-2.0-flash') # Do not change this
 
 # --- USDA FoodData Central API Configuration ---
 # Replace with your actual USDA API Key (obtainable from api.nal.usda.gov)
@@ -37,39 +37,70 @@ USDA_API_BASE_URL = "https://api.nal.usda.gov/fdc/v1"
 
 # --- Google Sheets Column Mapping (0-based index for code logic) ---
 # Adjust these if your sheet structure differs from the provided example
+# Keep indices consistent with the CSV header row 9
+# ,Date,Weight,Weight Time,Sleep,Sleep Quality,Steps,Cardio,Training,Energy,Mood,Satiety,Digestion,Calories,P,C,F,Fi,H2O,...
+# ,B   ,C     ,D           ,E    ,F            ,G    ,H     ,I       ,J     ,K   ,L      ,M        ,N       ,O,P,Q,R ,S
 DATE_COL_IDX = 1       # Column B
 WEIGHT_COL_IDX = 2     # Column C
+WEIGHT_TIME_COL_IDX = 3 # Column D (New)
 SLEEP_COL_IDX = 4      # Column E
 SLEEP_QUALITY_COL_IDX = 5 # Column F
 STEPS_COL_IDX = 6      # Column G
+CARDIO_COL_IDX = 7     # Column H (New - Text)
+TRAINING_COL_IDX = 8   # Column I (New - Text)
 ENERGY_COL_IDX = 9     # Column J
 MOOD_COL_IDX = 10      # Column K
 SATIETY_COL_IDX = 11   # Column L
 DIGESTION_COL_IDX = 12 # Column M
-CALORIES_COL_IDX = 13  # Column N
+CALORIES_COL_IDX = 13  # Column N (Formula)
 PROTEIN_COL_IDX = 14   # Column O
 CARBS_COL_IDX = 15     # Column P
 FAT_COL_IDX = 16       # Column Q
 FIBER_COL_IDX = 17     # Column R
+# H2O_COL_IDX = 18 # Optional: Column S
 
 # Row index (0-based) where the actual data starts (below headers)
 FIRST_DATA_ROW_IDX = 9 # Row 10 in Google Sheets
 
-# Dictionary to map user-friendly metric names to column indices
-METRIC_COLUMN_MAP = {
-    'weight': WEIGHT_COL_IDX,
-    'sleep': SLEEP_COL_IDX,
-    'sleep quality': SLEEP_QUALITY_COL_IDX,
-    'steps': STEPS_COL_IDX,
-    'energy': ENERGY_COL_IDX,
-    'mood': MOOD_COL_IDX,
-    'satiety': SATIETY_COL_IDX,
-    'digestion': DIGESTION_COL_IDX,
-    # 'calories': CALORIES_COL_IDX, # Handled separately by add_nutrition
-    # 'protein': PROTEIN_COL_IDX,
-    # 'carbs': CARBS_COL_IDX,
-    # 'fat': FAT_COL_IDX,
-    # 'fiber': FIBER_COL_IDX,
+# Dictionary to map conversational choices to column indices or groups of indices
+# Keys should match callback_data prefixes (e.g., 'log_wellness')
+# Types: 'numeric_multi', 'weight_time', 'numeric_single', 'text_single'
+LOGGING_CHOICES_MAP = {
+    'wellness': {
+        'prompt': "Energy Mood Satiety Digestion (4 numbers space-separated, e.g., 8 9 7 3):",
+        'cols': [ENERGY_COL_IDX, MOOD_COL_IDX, SATIETY_COL_IDX, DIGESTION_COL_IDX],
+        'type': 'numeric_multi'
+    },
+    'sleep': {
+        'prompt': "Sleep Hours Quality (2 numbers space-separated, e.g., 7.5 8):",
+        'cols': [SLEEP_COL_IDX, SLEEP_QUALITY_COL_IDX],
+        'type': 'numeric_multi'
+    },
+    'weight': {
+        'prompt': "Weight [Time] (e.g., 85.5 0930 or just 85.5):",
+        'cols': [WEIGHT_COL_IDX, WEIGHT_TIME_COL_IDX],
+        'type': 'weight_time'
+    },
+    'steps': {
+        'prompt': "Steps:",
+        'cols': [STEPS_COL_IDX],
+        'type': 'numeric_single'
+    },
+    'cardio': {
+        'prompt': "Cardio details (text):",
+        'cols': [CARDIO_COL_IDX],
+        'type': 'text_single'
+    },
+    'training': {
+        'prompt': "Training details (text):",
+        'cols': [TRAINING_COL_IDX],
+        'type': 'text_single'
+    },
+    # 'h2o': { # Optional
+    #     'prompt': "Water Intake (e.g., glasses, L):",
+    #     'cols': [H2O_COL_IDX],
+    #     'type': 'numeric_single' # Or text depending on how you track
+    # },
 }
 
 # Nutrient IDs for USDA API (Common ones, verify if needed)

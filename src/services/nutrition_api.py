@@ -2,33 +2,18 @@
 
 import requests
 import logging
-import config
-import google.generativeai as genai # For fallback estimation and selection
+import os
 import json
 import re # For parsing Gemini's ID choice
+from typing import List, Dict, Any
+from src.config import config
+from src.services.ai_models import AIModelManager
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
 logger = logging.getLogger(__name__)
 
-_gemini_model_nutrition = None
-
-def _get_gemini_model_for_nutrition():
-    """Initializes and returns the Gemini model instance for nutrition tasks."""
-    global _gemini_model_nutrition
-    if _gemini_model_nutrition is None:
-        try:
-            if not config.GEMINI_API_KEY or config.GEMINI_API_KEY == 'YOUR_GEMINI_API_KEY_PLACEHOLDER':
-                 raise ValueError("Gemini API Key not configured.")
-            genai.configure(api_key=config.GEMINI_API_KEY)
-            _gemini_model_nutrition = genai.GenerativeModel(config.GEMINI_MODEL_NAME)
-            logger.info(f"Gemini model '{config.GEMINI_MODEL_NAME}' initialized for nutrition tasks.")
-        except Exception as e:
-            logger.error(f"Error initializing Gemini model for nutrition tasks: {e}")
-            # raise # Optionally re-raise if Gemini is critical
-    return _gemini_model_nutrition
+def _get_api_key(key_name, config_value):
+    """Get API key from environment variables or config."""
+    return os.environ.get(key_name, config_value)
 
 def _search_usda_food(item_name: str) -> list[dict] | None:
     """Searches the USDA database for a food item and returns top candidate details.
@@ -40,13 +25,14 @@ def _search_usda_food(item_name: str) -> list[dict] | None:
         A list of dictionaries, each with 'fdcId' and 'description',
         or None if the search fails or yields no results.
     """
-    if not config.USDA_API_KEY or config.USDA_API_KEY == 'YOUR_USDA_API_KEY_PLACEHOLDER':
+    usda_api_key = _get_api_key("USDA_API_KEY", config.USDA_API_KEY)
+    if not usda_api_key or usda_api_key == 'YOUR_USDA_API_KEY_PLACEHOLDER':
         logger.warning("USDA API Key not configured. Skipping USDA search.")
         return None
 
     search_url = f"{config.USDA_API_BASE_URL}/foods/search"
     params = {
-        'api_key': config.USDA_API_KEY,
+        'api_key': usda_api_key,
         'query': item_name,
         'pageSize': 5, # Fetch up to 5 results
         'dataType': 'Foundation,SR Legacy,Survey (FNDDS)' # Broaden search slightly
@@ -94,10 +80,8 @@ def _choose_best_usda_match(original_query: str, candidates: list[dict]) -> int 
         logger.info(f"Only one USDA candidate found for '{original_query}', selecting FDC ID: {candidates[0]['fdcId']}")
         return candidates[0]['fdcId']
 
-    model = _get_gemini_model_for_nutrition()
-    if not model:
-        logger.warning("Gemini model unavailable for USDA candidate selection. Defaulting to first candidate.")
-        return candidates[0]['fdcId']
+    # Get the nutrition model instance
+    model = AIModelManager.get_model('nutrition')
 
     # Format candidates for the prompt
     candidates_text = "\n".join([
@@ -117,7 +101,8 @@ Chosen FDC ID:"""
 
     logger.info(f"Asking Gemini to choose best USDA match for '{original_query}' from {len(candidates)} candidates.")
     try:
-        response = model.generate_content(prompt)
+        # Add timeout to prevent hanging
+        response = model.generate_content(prompt, request_options={"timeout": 30})  # 30 second timeout
         response_text = response.text.strip()
         logger.debug(f"Gemini selection response for '{original_query}': '{response_text}'")
 
@@ -144,13 +129,14 @@ Chosen FDC ID:"""
 
 def _get_usda_nutrition_details(fdc_id: int, quantity_g: float) -> dict | None:
     """Fetches and calculates nutritional details for a specific FDC ID and quantity."""
-    if not config.USDA_API_KEY or config.USDA_API_KEY == 'YOUR_USDA_API_KEY_PLACEHOLDER':
+    usda_api_key = _get_api_key("USDA_API_KEY", config.USDA_API_KEY)
+    if not usda_api_key or usda_api_key == 'YOUR_USDA_API_KEY_PLACEHOLDER':
         logger.warning("USDA API Key not configured. Skipping USDA details fetch.")
         return None
 
     details_url = f"{config.USDA_API_BASE_URL}/food/{fdc_id}"
     params = {
-        'api_key': config.USDA_API_KEY,
+        'api_key': usda_api_key,
         # 'format': 'full' # 'abridged' might be sufficient and faster
     }
     try:
@@ -226,11 +212,9 @@ def _get_usda_nutrition_details(fdc_id: int, quantity_g: float) -> dict | None:
 
 def _estimate_nutrition_with_gemini(item_name: str, quantity_g: float) -> dict | None:
     """Uses Gemini to estimate nutrition as a fallback."""
-    model = _get_gemini_model_for_nutrition()
-    if not model:
-        logger.warning(f"Gemini model not available for nutrition fallback for '{item_name}'.")
-        return None
-
+    # Get the nutrition model instance
+    model = AIModelManager.get_model('nutrition')
+    
     prompt = f"""
     Estimate the nutritional information (calories, protein, carbohydrates, fat, and fiber) for the following food item and quantity. Provide values per the specified quantity, not per 100g.
 
@@ -245,15 +229,17 @@ def _estimate_nutrition_with_gemini(item_name: str, quantity_g: float) -> dict |
     - "fiber"
 
     Example Output: {{"calories": 250.0, "protein": 10.5, "carbs": 30.0, "fat": 8.2, "fiber": 3.1}}
-
+    
     Output:
     """
     logger.info(f"Requesting Gemini nutrition estimation for '{item_name}' ({quantity_g}g)")
     try:
-        response = model.generate_content(prompt)
+        # Add timeout to prevent hanging
+        response = model.generate_content(prompt, request_options={"timeout": 30})  # 30 second timeout
+        # Clean up potential markdown code fences and surrounding text/whitespace
         cleaned_text = response.text.strip().lstrip('```json').rstrip('```').strip()
-        logger.debug(f"Raw Gemini nutrition response: {response.text}")
-        logger.debug(f"Cleaned Gemini nutrition response: {cleaned_text}")
+        logger.debug(f"Raw Gemini response: {response.text}")
+        logger.debug(f"Cleaned Gemini response: {cleaned_text}")
         
         parsed_json = json.loads(cleaned_text)
 
@@ -270,7 +256,7 @@ def _estimate_nutrition_with_gemini(item_name: str, quantity_g: float) -> dict |
         else:
             logger.error(f"Gemini nutrition response was not a JSON object: {type(parsed_json)}")
             return None
-
+        
     except json.JSONDecodeError as json_err:
         logger.error(f"Error decoding Gemini nutrition JSON response: {json_err}. Response text: '{cleaned_text}'")
         return None
@@ -278,7 +264,7 @@ def _estimate_nutrition_with_gemini(item_name: str, quantity_g: float) -> dict |
         logger.error(f"Error calling Gemini API for nutrition estimation: {e}")
         return None
 
-def get_nutrition_for_items(items_list: list) -> dict | None:
+def get_nutrition_for_items(items: List[Dict[str, Any]]) -> Dict[str, float] | None:
     """Gets aggregated nutritional info for a list of parsed meal items.
        Uses Gemini to help select the best USDA match if multiple candidates exist.
     """
@@ -289,11 +275,11 @@ def get_nutrition_for_items(items_list: list) -> dict | None:
     }
     success = False
 
-    if not items_list:
+    if not items:
         logger.warning("Received empty items list for nutrition lookup.")
         return None
 
-    for item in items_list:
+    for item in items:
         item_name = item.get('item')
         quantity_g = item.get('quantity_g')
 

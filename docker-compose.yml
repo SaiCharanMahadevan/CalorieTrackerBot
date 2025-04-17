@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: telegram-health-metrics-bot:local
+    container_name: telegram-health-metrics-bot
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8000:8080"  # Map host port 8000 to container port 8080
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src  # Mount only the source code for development
+      - ./requirements.txt:/app/requirements.txt  # Mount requirements for hot reload
+      - ./bot_configs.json:/app/bot_configs.json # Mount config file
+      # Exclude unnecessary directories from mount
+      - /app/__pycache__
+      - /app/src/__pycache__
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+          ignore:
+            - "**/__pycache__/"
+            - "**/*.pyc"
+        - action: rebuild
+          path: requirements.txt
+    restart: unless-stopped
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok-service
+    depends_on:
+      - bot
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTH_TOKEN}
+    command: "http bot:8080"
+    ports:
+      - "4040:4040"  # Ngrok web interface
+    restart: unless-stopped 

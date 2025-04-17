@@ -1,0 +1,44 @@
+name: Deploy Tag to Railway
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on tags like v1.0, v2.1-alpha, etc.
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4 # Checks out the code associated with the tag
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18' # Or a version compatible with railway-cli
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      # Important: Create the service account key file from the secret
+      - name: Create Service Account Key File
+        run: echo "${{ secrets.SERVICE_ACCOUNT_JSON }}" > service-account-key.json
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+
+      - name: Make deploy script executable
+        run: chmod +x ./deploy.sh
+
+      - name: Deploy to Railway
+        env:
+          # Railway CLI authentication token
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Application Secrets needed by deploy-railway.sh and the application
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          WORKSHEET_NAME: ${{ secrets.WORKSHEET_NAME }} # Make sure this is correct or store as secret
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
+          # SERVICE_ACCOUNT_JSON is implicitly used by the script reading the file created above
+        run: ./deploy.sh 
