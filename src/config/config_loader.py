@@ -7,6 +7,9 @@ import threading # For singleton lock
 # --- Import from utils ---
 from src.utils import sanitize_token
 
+# Import the schema maps and defaults
+from .config import TEMPLATE_SCHEMA_MAP, LEGACY_SCHEMA_MAP, DEFAULT_FIRST_DATA_ROW
+
 logger = logging.getLogger(__name__)
 
 # Singleton instance and lock
@@ -115,7 +118,21 @@ class AppConfig:
              worksheet_name = cfg_dict.get("worksheet_name", "Sheet1") # Default worksheet name
              allowed_users = cfg_dict.get("allowed_users", []) # Default to empty list (allow all)
 
-             # Validation
+             # --- Load and Validate Schema Type --- START
+             schema_type = cfg_dict.get("schema_type", "template").lower() # Default to template
+             if schema_type not in ["template", "legacy"]:
+                 logger.warning(f"Bot config for token {token[:6]}... has invalid 'schema_type': '{schema_type}'. Defaulting to 'template'.")
+                 schema_type = "template"
+
+             # --- Determine Column Map and Default First Data Row --- #
+             if schema_type == "legacy":
+                 column_map = LEGACY_SCHEMA_MAP
+                 first_data_row = DEFAULT_FIRST_DATA_ROW["legacy"] # Directly assign default
+             else: # Default to template
+                 column_map = TEMPLATE_SCHEMA_MAP
+                 first_data_row = DEFAULT_FIRST_DATA_ROW["template"] # Directly assign default
+
+             # Validation for required fields (token, sheet_id)
              if not token:
                  logger.warning(f"Bot config at index {i} is missing required 'bot_token'. Skipping.")
                  continue
@@ -142,17 +159,20 @@ class AppConfig:
                  logger.warning(f"Duplicate bot_token found: {token[:6]}... (index {i}). Skipping duplicate entry.")
                  continue
 
-             # Store valid config
+             # Store valid config including resolved schema details
              valid_config = {
                  "bot_token": token,
                  "google_sheet_id": sheet_id,
                  "worksheet_name": worksheet_name,
-                 "allowed_users": allowed_users
+                 "allowed_users": allowed_users,
+                 "schema_type": schema_type,
+                 "first_data_row": first_data_row,
+                 "column_map": column_map # Attach the resolved column map
              }
              self.bot_configs.append(valid_config)
              self._bot_config_map[token] = valid_config
              seen_tokens.add(token)
-             logger.info(f"Loaded config for bot token starting with: {token[:6]}... (Sheet ID: {sheet_id})")
+             logger.info(f"Loaded config for bot {token[:6]}... (Sheet: {sheet_id}, Schema: {schema_type}, StartRow: {first_data_row})")
 
          if not self.bot_configs:
              logger.warning(f"No valid bot configurations loaded from {config_path}. The application might not function.")

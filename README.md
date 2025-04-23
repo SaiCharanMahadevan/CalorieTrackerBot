@@ -71,18 +71,21 @@ This bot allows you to log daily health metrics (like weight, sleep, steps) and 
               {
                 "bot_token": "YOUR_FIRST_BOT_TOKEN_HERE",
                 "google_sheet_id": "YOUR_FIRST_BOT_SHEET_ID_HERE",
+                "schema_type": "template", // Optional: "template" (default) or "legacy"
                 "worksheet_name": "Sheet1", // Optional, defaults to Sheet1
-                "allowed_users": [123456789, 987654321] // Optional, empty list [] allows all users
+                "allowed_users": [123456789] // Optional, empty list [] allows all users
               },
               {
                 "bot_token": "YOUR_SECOND_BOT_TOKEN_HERE",
-                "google_sheet_id": "YOUR_SECOND_BOT_SHEET_ID_HERE"
+                "google_sheet_id": "YOUR_SECOND_BOT_SHEET_ID_HERE",
+                "schema_type": "legacy" // Example: Use the legacy schema
                 // worksheet_name defaults to Sheet1
                 // allowed_users defaults to [] (allow all)
               }
               // Add more bot configurations as needed
             ]
             ```
+        *   **`schema_type`**: Determines column mapping and the first data row (0-based index: 1 for "template", 9 for "legacy"). Use `"template"` for new sheets based on the provided template, or `"legacy"` for the original format.
         *   **Ensure `bot_configs.json` is added to your `.gitignore` file!**
     *   **Local `.env` file (For Development ONLY):**
         *   You can place the environment variables (`GEMINI_API_KEY`, `USDA_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` or `SERVICE_ACCOUNT_JSON`, `BOT_CONFIG_PATH`) in a `.env` file for local development convenience. The `run_local.sh` script also requires `NGROK_AUTH_TOKEN` in `.env`.
@@ -180,33 +183,56 @@ This script handles:
 .
 ├── src/                    # Source code directory
 │   ├── app.py             # FastAPI application entry point & webhook handlers
-│   ├── bot/               # PTB Handlers & Bot Logic (bot_logic.py)
-│   ├── config/            # Configuration loading (config_loader.py, config.py)
-│   ├── services/          # Core services (Sheets, Meal Parsing, Nutrition API)
-│   ├── utils.py           # Utility functions (e.g., sanitize_token)
+│   ├── bot/               # Bot logic and handlers
+│   │   ├── bot_logic.py   # Main PTB Application setup, conversation handler structure
+│   │   ├── direct_commands.py # Handlers for direct commands (/start, /help, /log)
+│   │   ├── conversation_handlers.py # Handlers for /newlog conversation states
+│   │   ├── helpers.py     # Helper functions used by bot handlers
+│   │   └── __init__.py
+│   ├── config/            # Configuration loading and definitions
+│   │   ├── config_loader.py # Loads bot configurations from file/env
+│   │   ├── config.py      # Defines dataclasses for config, constants
+│   │   └── __init__.py
+│   ├── services/          # Core services (external APIs, parsing)
+│   │   ├── sheets_handler.py # Interacts with Google Sheets API
+│   │   ├── meal_parser.py # Parses meal text/images using Gemini
+│   │   ├── nutrition_api.py # Fetches nutrition data from USDA API
+│   │   ├── ai_models.py   # Initializes AI models (e.g., Gemini)
+│   │   └── __init__.py
+│   ├── utils.py           # Shared utility functions
 │   └── __init__.py
 ├── scripts/               # Utility scripts
 │   └── run_local.sh       # Local development runner & multi-webhook setup
+├── tests/                 # Unit/integration tests (Placeholder)
+├── .github/               # GitHub Actions workflows (e.g., CI/CD)
 ├── .env                   # Local environment variables (DO NOT COMMIT!)
-├── .gitignore            # Git ignore rules
-├── .dockerignore         # Docker ignore rules
-├── .python-version       # Python version specification
-├── bot_configs.json      # Bot configurations (DO NOT COMMIT!)
-├── docker-compose.yml    # Docker Compose configuration for local dev
-├── Dockerfile            # Docker configuration for deployment
-├── requirements.txt      # Python dependencies
-└── README.md             # This file
+├── .gitignore             # Git ignore rules
+├── .dockerignore          # Docker ignore rules
+├── .python-version        # Specifies Python version (e.g., for pyenv)
+├── bot_configs.json       # Bot configurations (DO NOT COMMIT!)
+├── docker-compose.yml     # Docker Compose configuration for local dev
+├── Dockerfile             # Docker configuration for deployment
+├── requirements.txt       # Python dependencies
+├── README.md              # This file
+├── service-account-key.json # Google Service Account Key (DO NOT COMMIT!)
+├── setup_webhook.sh       # Manual script to set webhook (e.g., for Render initial setup)
 ```
 
 ## Key Components
 
 *   **`src/app.py`:** FastAPI app, handles dynamic `/webhook/{bot_token}` requests, initializes the correct `Bot` instance per request, routes updates to PTB.
-*   **`src/bot/bot_logic.py`:** Defines PTB command/conversation handlers, uses `update._bot` to ensure correct bot context for actions.
-*   **`src/config/config_loader.py`:** Loads shared config and bot-specific configs from `bot_configs.json`.
-*   **`src/utils.py`:** Contains shared utility functions.
+*   **`src/bot/` directory:** Contains all logic related to the Telegram bot interaction using `python-telegram-bot`.
+    *   **`bot_logic.py`:** Sets up the main `telegram.ext.Application` and registers all command, message, and conversation handlers.
+    *   **`direct_commands.py`:** Implements handlers for simple, one-off commands like `/start`, `/help`, and `/log`.
+    *   **`conversation_handlers.py`:** Implements the state machine and handlers for the multi-step `/newlog` conversation.
+    *   **`helpers.py`:** Contains utility functions specifically for the bot handlers (e.g., getting bot config, error handling).
+*   **`src/config/config_loader.py`:** Loads shared config and bot-specific configs from `bot_configs.json` and environment variables.
+*   **`src/services/` directory:** Contains modules responsible for interacting with external APIs and performing core data processing.
+*   **`src/utils.py`:** Contains general utility functions used across the application.
 *   **`bot_configs.json`:** Defines configurations for multiple bots (tokens, sheet IDs, allowed users).
 *   **`scripts/run_local.sh`:** Sets up local dev environment and configures webhooks for all bots defined in `bot_configs.json` using ngrok.
-*   **(Other components as previously described - Sheets, Meal Parsing, Nutrition API, Docker config etc.)**
+*   **`setup_webhook.sh`:** Manual script primarily for setting webhooks in a deployed environment like Render where `run_local.sh` isn't applicable.
+*   **(Other components as previously described - Docker config etc.)**
 
 ## Troubleshooting
 
@@ -214,3 +240,32 @@ This script handles:
 *   **Config not found:** Verify `BOT_CONFIG_PATH` environment variable (if used) points to the correct location, or that `bot_configs.json` exists at the project root/container path. Check file permissions.
 *   **Webhook errors:** Check the output of `./scripts/run_local.sh` or your manual `curl` commands when setting webhooks. Ensure the ngrok/Render URL is correct and reachable.
 *   **Docker errors:** Check `docker compose logs` for build or runtime errors.
+
+# Calorie Tracker Bot Templates
+
+This directory contains template files for setting up your Google Sheet to work with the Calorie Tracker Bot:
+
+1. `template_sheet_schema.md` - Detailed documentation of the required Google Sheets structure, including:
+   - Column specifications and data types
+   - Setup instructions
+   - Configuration steps
+   - Tips and troubleshooting
+
+2. `template_sheet.csv` - A CSV file that you can import into Google Sheets to quickly create a properly formatted sheet:
+   - Contains all required column headers
+   - Includes an example row showing correct data formats
+   - Can be imported directly into Google Sheets
+
+## Quick Start
+
+1. Create a new Google Sheet
+2. Go to File > Import > Upload > Select `template_sheet.csv`
+3. Choose "Replace current sheet" when importing
+4. Name your worksheet "Daily Tracking" (or update the config to match your chosen name)
+5. Share the sheet with your bot's service account email
+6. Copy the Google Sheet ID from the URL
+7. Update your bot's configuration with the Sheet ID
+
+## Detailed Setup
+
+For complete setup instructions and schema details, please refer to `template_sheet_schema.md`.

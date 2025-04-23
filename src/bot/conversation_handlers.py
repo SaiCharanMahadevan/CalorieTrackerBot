@@ -8,7 +8,7 @@ from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 
 # Imports from project structure
-from src.config.config import LOGGING_CHOICES_MAP, WEIGHT_COL_IDX, WEIGHT_TIME_COL_IDX
+from src.config.config import LOGGING_CHOICES_MAP
 from src.services.sheets_handler import update_metrics, add_nutrition, format_date_for_sheet
 from src.services.meal_parser import parse_meal_text_with_gemini, parse_meal_image_with_gemini
 from src.services.nutrition_api import get_nutrition_for_items
@@ -183,6 +183,15 @@ async def received_metric_choice(update: Update, context: ContextTypes.DEFAULT_T
 
 async def received_metric_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("Received metric value input")
+
+    # --- Get correct bot instance EARLY --- 
+    correct_bot = getattr(update, '_bot', None)
+    if not correct_bot:
+         logger.error(f"Could not access update._bot in received_metric_value for update {update.update_id}.")
+         await update.message.reply_text("Internal error: Bot context missing. Please try /newlog again.")
+         return ConversationHandler.END
+    # ------------------------------------
+
     metric_type = context.user_data.get('selected_metric')
     target_date = context.user_data.get('target_date')
     logger.info(f"Processing value for metric: {metric_type}, date: {target_date}")
@@ -192,98 +201,116 @@ async def received_metric_value(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Error: Missing context. Please start over with /newlog")
         return ConversationHandler.END
         
-    # --- Get Sheet Config for this bot ---
+    # --- Get Sheet Config & Column Map --- #
     sheet_config = _get_current_sheet_config(update)
     if not sheet_config:
         await update.message.reply_text("Sorry, bot configuration error.")
         return ConversationHandler.END # Or some error state
     sheet_id = sheet_config['google_sheet_id']
     worksheet_name = sheet_config['worksheet_name']
-    # -------------------------------------
+    column_map = sheet_config['column_map'] # Get the specific column map
+    # --------------------------------------
 
     metric_info = LOGGING_CHOICES_MAP[metric_type]
     input_type = metric_info['type']
+    metric_keys = metric_info['metrics'] # Get standardized keys
+    num_values_expected = metric_info['num_values']
     sheet_date_str = format_date_for_sheet(target_date)
     logger.info(f"Input type: {input_type}")
-    
-    # (Replies below use update.message.reply_text - implicitly correct bot)
+
+    metric_updates_dict = {}
+
     try:
         if input_type == 'text_single':
-            logger.info(f"Processing text input: {update.message.text}")
-            success = update_metrics(
-                sheet_id=sheet_id,
-                worksheet_name=worksheet_name,
-                target_dt=target_date,
-                metric_updates={metric_info['cols'][0]: update.message.text}
-            )
-            if success:
-                await update.message.reply_text(f"✅ Updated '{metric_type}' for {sheet_date_str}.")
-            else:
-                await update.message.reply_text(f"❌ Failed to update '{metric_type}' in Google Sheet.")
+            col_key = metric_keys[0]
+            col_idx = column_map.get(col_key)
+            if col_idx is None:
+                logger.error(f"Schema Error: Key '{col_key}' not found.")
+                raise ValueError(f"Schema config error for {metric_type}")
+            metric_updates_dict = {col_idx: update.message.text}
+
         elif input_type == 'numeric_single':
+            col_key = metric_keys[0]
+            col_idx = column_map.get(col_key)
+            if col_idx is None:
+                logger.error(f"Schema Error: Key '{col_key}' not found.")
+                raise ValueError(f"Schema config error for {metric_type}")
             try:
                 value = float(update.message.text)
-                success = update_metrics(
-                    sheet_id=sheet_id,
-                    worksheet_name=worksheet_name,
-                    target_dt=target_date,
-                    metric_updates={metric_info['cols'][0]: value}
-                )
-                if success:
-                    await update.message.reply_text(f"✅ Updated '{metric_type}' to '{value}' for {sheet_date_str}.")
-                else:
-                    await update.message.reply_text(f"❌ Failed to update '{metric_type}' in Google Sheet.")
+                metric_updates_dict = {col_idx: value}
             except ValueError:
                 await update.message.reply_text(f"Invalid numeric value. Please enter a number.")
                 return AWAIT_METRIC_INPUT
+
         elif input_type == 'numeric_multi':
             try:
                 values = [float(v) for v in update.message.text.split()]
-                if len(values) != len(metric_info['cols']):
-                    await update.message.reply_text(f"Expected {len(metric_info['cols'])} values, got {len(values)}. Please try again.")
+                if len(values) != len(metric_keys):
+                    await update.message.reply_text(f"Expected {len(metric_keys)} values, got {len(values)}. Please try again.")
                     return AWAIT_METRIC_INPUT
-                updates = {col: val for col, val in zip(metric_info['cols'], values)}
-                success = update_metrics(
-                    sheet_id=sheet_id,
-                    worksheet_name=worksheet_name,
-                    target_dt=target_date,
-                    metric_updates=updates
-                )
-                if success:
-                    await update.message.reply_text(f"✅ Updated '{metric_type}' values for {sheet_date_str}.")
-                else:
-                    await update.message.reply_text(f"❌ Failed to update '{metric_type}' in Google Sheet.")
+                temp_updates = {}
+                for key, val in zip(metric_keys, values):
+                    col_idx = column_map.get(key)
+                    if col_idx is None:
+                        logger.error(f"Schema Error: Key '{key}' not found.")
+                        raise ValueError(f"Schema config error for {metric_type}")
+                    temp_updates[col_idx] = val
+                metric_updates_dict = temp_updates
             except ValueError:
                 await update.message.reply_text(f"Invalid numeric values. Please provide space-separated numbers.")
                 return AWAIT_METRIC_INPUT
+
         elif input_type == 'weight_time':
+            weight_col_key = metric_keys[0]
+            time_col_key = metric_keys[1]
+            weight_col_idx = column_map.get(weight_col_key)
+            time_col_idx = column_map.get(time_col_key)
+            if weight_col_idx is None or time_col_idx is None:
+                 logger.error(f"Schema Error: Weight/Time keys missing.")
+                 raise ValueError(f"Schema config error for {metric_type}")
             parts = update.message.text.split()
-            
             try:
                 weight = float(parts[0])
                 weight_time = parts[1] if len(parts) > 1 else None
-                updates = {WEIGHT_COL_IDX: weight}
+                temp_updates = {weight_col_idx: weight}
                 if weight_time:
-                    updates[WEIGHT_TIME_COL_IDX] = weight_time
-                success = update_metrics(
-                    sheet_id=sheet_id,
-                    worksheet_name=worksheet_name,
-                    target_dt=target_date,
-                    metric_updates=updates
-                )
-                if success:
-                    await update.message.reply_text(f"✅ Updated weight to '{weight}'" + (f" at {weight_time}" if weight_time else "") + f" for {sheet_date_str}.")
-                else:
-                    await update.message.reply_text(f"❌ Failed to update weight in Google Sheet.")
+                    temp_updates[time_col_idx] = weight_time
+                metric_updates_dict = temp_updates
             except ValueError:
                 await update.message.reply_text(f"Invalid weight value. Please enter a number, optionally followed by time (e.g., '85.5 0930').")
                 return AWAIT_METRIC_INPUT
             except IndexError:
                 await update.message.reply_text(f"Error processing weight input: '{update.message.text}'. Please enter weight [time].")
                 return AWAIT_METRIC_INPUT
+
+        # --- Call update_metrics AFTER processing all types ---
+        if metric_updates_dict:
+            logger.info(f"Calling update_metrics for {metric_type} with updates: {metric_updates_dict}")
+            success = update_metrics(
+                sheet_id=sheet_id,
+                worksheet_name=worksheet_name,
+                target_dt=target_date,
+                metric_updates=metric_updates_dict,
+                bot_token=correct_bot.token
+            )
+            if success:
+                # Use a generic success message or tailor based on type if needed
+                await update.message.reply_text(f"✅ Updated '{metric_type}' for {sheet_date_str}.")
+            else:
+                await update.message.reply_text(f"❌ Failed to update '{metric_type}' in Google Sheet.")
+        else:
+            # Should not happen if logic above is correct, but good to handle
+            logger.warning(f"No metric updates generated for input type {input_type}")
+            await update.message.reply_text(f"Could not process input for '{metric_type}'.")
+
         await ask_log_more(update, context)
         return ASK_LOG_MORE
 
+    except ValueError as ve:
+        # Handle schema config errors specifically
+        logger.error(f"Schema configuration error processing {metric_type}: {ve}")
+        await update.message.reply_text(f"❌ Internal configuration error for '{metric_type}'. Please contact the admin.")
+        return ConversationHandler.END # End on config errors
     except Exception as e:
         logger.error(f"Error processing metric value for {metric_type}: {e}", exc_info=True)
         await update.message.reply_text("😥 An error occurred while processing your input.")
@@ -401,7 +428,21 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
 
 async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer() 
+    await query.answer()
+
+    # --- Get correct bot instance EARLY --- #
+    correct_bot = getattr(update, '_bot', None)
+    if not correct_bot:
+         logger.error(f"Could not access update._bot in received_meal_confirmation for update {update.update_id}.")
+         # Attempt to edit the message if possible
+         try:
+             await query.edit_message_text("Internal error: Bot context missing. Please try /newlog again.")
+         except Exception as e:
+             logger.error(f"Failed to edit message on missing bot context: {e}")
+         return ConversationHandler.END
+    bot_token_snippet = correct_bot.token[:6] + "..." if correct_bot.token else "Unknown"
+    # ------------------------------------
+
     choice = query.data
     target_date = context.user_data.get('target_date')
     if not target_date:
@@ -448,21 +489,13 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
         return AWAIT_MACRO_EDIT
     # -----------------------------------
 
-    # --- Handler for Cancel --- (logic remains the same)
+    # --- Handler for Cancel --- #
     if choice == 'confirm_meal_no':
         await query.edit_message_text("Meal logging cancelled. What would you like to log?")
-        
-        # --- Get correct bot instance ---
-        correct_bot = getattr(update, '_bot', None)
-        if not correct_bot:
-             logger.error(f"Could not access update._bot in received_meal_confirmation (cancel) for update {update.update_id}.")
-             return ConversationHandler.END
-        bot_token_snippet = correct_bot.token[:6] + "..." if correct_bot.token else "Unknown"
-        # --------------------------------
-        
+
         reply_markup = _get_metric_choice_keyboard()
-        
-        # --- Send message using correct bot ---
+
+        # --- Send message using correct bot (already defined) --- #
         logger.info(f"received_meal_confirmation: Sending metric choice prompt using bot {bot_token_snippet}")
         await correct_bot.send_message(
             update.effective_chat.id,
@@ -470,21 +503,21 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
             reply_markup=reply_markup
         )
         # ---------------------------------------
-        
+
         context.user_data.pop('nutrition_info', None)
         context.user_data.pop('parsed_items', None)
         return AWAITING_METRIC_CHOICE
 
-    # --- Handler for Add Meal (Confirm Yes) --- (logic remains the same)
-    if choice == 'confirm_meal_yes': 
-        # --- Indented Block ---
+    # --- Handler for Add Meal (Confirm Yes) --- #
+    if choice == 'confirm_meal_yes':
+        # correct_bot is already defined above
         nutrition_info = context.user_data.get('nutrition_info')
-        parsed_items = context.user_data.get('parsed_items') # Keep this check
+        parsed_items = context.user_data.get('parsed_items')
         if not nutrition_info or not parsed_items:
             await query.edit_message_text("Error: Missing nutrition data. Please start over with /newlog")
             return ConversationHandler.END
 
-        # --- Get Sheet Config for this bot ---
+        # --- Get Sheet Config for this bot --- #
         sheet_config = _get_current_sheet_config(update)
         if not sheet_config:
             await query.edit_message_text("Sorry, bot configuration error.")
@@ -494,21 +527,23 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
         worksheet_name = sheet_config['worksheet_name']
         # -------------------------------------
 
-        await query.edit_message_text("Adding meal to your log...") 
-        
+        await query.edit_message_text("Adding meal to your log...")
+
         # Call the actual function to add nutrition (using data from user_data)
+        logger.info(f"received_meal_confirmation: Calling add_nutrition for {sheet_date_str}")
         success = add_nutrition(
-            sheet_id=sheet_id, 
-            worksheet_name=worksheet_name, 
+            sheet_id=sheet_id,
+            worksheet_name=worksheet_name,
             target_dt=target_date,
+            bot_token=correct_bot.token, # Now correct_bot is guaranteed to be defined
             calories=nutrition_info.get('calories', 0),
             p=nutrition_info.get('protein', 0),
             c=nutrition_info.get('carbs', 0),
             f=nutrition_info.get('fat', 0),
             fi=nutrition_info.get('fiber', 0)
         )
-            
-        # Edit the message AGAIN with the final result 
+
+        # Edit the message AGAIN with the final result
         if success:
             response_text = (
                 f"✅ Meal logged for {sheet_date_str}!\n"
@@ -525,41 +560,40 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
         # Ask to log more after attempting to log
         await ask_log_more(update, context)
         return ASK_LOG_MORE
-        # --- End Indented Block ---
-        
-    # --- Handler for Unexpected --- (logic remains the same)
+
+    # --- Handler for Unexpected --- #
     else:
-        # ... (existing unexpected callback logic using update._bot) ...
         logger.warning(f"Received unexpected callback data in meal confirmation: {choice}")
         await query.edit_message_text("Invalid choice. Please try again.")
-        
-        # --- Get correct bot instance for sending message ---
-        correct_bot = getattr(update, '_bot', None)
-        if not correct_bot:
-             logger.error(f"Could not access update._bot in received_meal_confirmation (unexpected) for update {update.update_id}.")
-             return ConversationHandler.END
-        bot_token_snippet = correct_bot.token[:6] + "..." if correct_bot.token else "Unknown"
-        # ---------------------------------------------
-        
+
         # Re-show confirmation or go back?
         # Going back to choosing metric seems safest.
         reply_markup = _get_metric_choice_keyboard()
-        
-        # --- Send message using correct bot ---
+
+        # --- Send message using correct bot (already defined) --- #
         logger.info(f"received_meal_confirmation: Sending metric choice (unexpected callback) using bot {bot_token_snippet}")
-        await correct_bot.send_message( 
+        await correct_bot.send_message(
             update.effective_chat.id,
             "What would you like to log?",
             reply_markup=reply_markup
         )
         # ---------------------------------------
-        
+
         return AWAITING_METRIC_CHOICE
 
 # --- NEW Handler for Edited Macros ---
 async def received_macro_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles the user's edited P, C, F, Fi values."""
     logger.info("received_macro_edit: Received edited macro input.")
+
+    # --- Get correct bot instance EARLY --- 
+    correct_bot = getattr(update, '_bot', None)
+    if not correct_bot:
+         logger.error(f"Could not access update._bot in received_macro_edit for update {update.update_id}.")
+         await update.message.reply_text("Internal error: Bot context missing. Please try /newlog again.")
+         return ConversationHandler.END
+    # ------------------------------------
+
     user_text = update.message.text
     target_date = context.user_data.get('target_date')
     nutrition_info = context.user_data.get('nutrition_info')
@@ -615,15 +649,14 @@ async def received_macro_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
     logger.info(f"received_macro_edit: Calling add_nutrition with EDITED values for {format_date_for_sheet(target_date)}")
     success = add_nutrition(
         sheet_id=sheet_id,
-        worksheet_name=worksheet_name, 
+        worksheet_name=worksheet_name,
         target_dt=target_date,
-        # Pass edited values
+        bot_token=correct_bot.token,
+        calories=edited_p + edited_c + edited_f + edited_fi,
         p=edited_p,
         c=edited_c,
         f=edited_f,
-        fi=edited_fi,
-        # Pass original estimated calories just for potential logging within add_nutrition
-        calories=nutrition_info.get('calories', 0) 
+        fi=edited_fi
     )
     # ---------------------------------
 

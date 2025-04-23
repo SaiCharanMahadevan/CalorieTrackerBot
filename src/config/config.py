@@ -35,72 +35,110 @@ GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-2.0-flash') # Do not 
 USDA_API_KEY = os.getenv('USDA_API_KEY', 'YOUR_USDA_API_KEY_PLACEHOLDER')
 USDA_API_BASE_URL = "https://api.nal.usda.gov/fdc/v1"
 
-# --- Google Sheets Column Mapping (0-based index for code logic) ---
-# Adjust these if your sheet structure differs from the provided example
-# Keep indices consistent with the CSV header row 9
-# ,Date,Weight,Weight Time,Sleep,Sleep Quality,Steps,Cardio,Training,Energy,Mood,Satiety,Digestion,Calories,P,C,F,Fi,H2O,...
-# ,B   ,C     ,D           ,E    ,F            ,G    ,H     ,I       ,J     ,K   ,L      ,M        ,N       ,O,P,Q,R ,S
-DATE_COL_IDX = 1       # Column B
-WEIGHT_COL_IDX = 2     # Column C
-WEIGHT_TIME_COL_IDX = 3 # Column D (New)
-SLEEP_COL_IDX = 4      # Column E
-SLEEP_QUALITY_COL_IDX = 5 # Column F
-STEPS_COL_IDX = 6      # Column G
-CARDIO_COL_IDX = 7     # Column H (New - Text)
-TRAINING_COL_IDX = 8   # Column I (New - Text)
-ENERGY_COL_IDX = 9     # Column J
-MOOD_COL_IDX = 10      # Column K
-SATIETY_COL_IDX = 11   # Column L
-DIGESTION_COL_IDX = 12 # Column M
-CALORIES_COL_IDX = 13  # Column N (Formula)
-PROTEIN_COL_IDX = 14   # Column O
-CARBS_COL_IDX = 15     # Column P
-FAT_COL_IDX = 16       # Column Q
-FIBER_COL_IDX = 17     # Column R
-# H2O_COL_IDX = 18 # Optional: Column S
+# --- Schema-Specific Column Mappings --- #
+# Standardized Keys used by the bot logic
+# Values are the 0-based indices for each schema type
 
-# Row index (0-based) where the actual data starts (below headers)
-FIRST_DATA_ROW_IDX = 9 # Row 10 in Google Sheets
+TEMPLATE_SCHEMA_MAP = {
+    'DATE_COL_IDX': 0,
+    'WEIGHT_COL_IDX': 1,
+    'WEIGHT_TIME_COL_IDX': 2,
+    'SLEEP_HOURS_COL_IDX': 3,
+    'SLEEP_QUALITY_COL_IDX': 4,
+    'STEPS_COL_IDX': 5,
+    'CARDIO_COL_IDX': 6,
+    'TRAINING_COL_IDX': 7,
+    'ENERGY_COL_IDX': 8,
+    'MOOD_COL_IDX': 9,
+    'SATIETY_COL_IDX': 10,
+    'DIGESTION_COL_IDX': 11,
+    'CALORIES_COL_IDX': 12,
+    'PROTEIN_COL_IDX': 13,
+    'CARBS_COL_IDX': 14,
+    'FAT_COL_IDX': 15,
+    'FIBER_COL_IDX': 16,
+    'WATER_COL_IDX': 17
+}
 
-# Dictionary to map conversational choices to column indices or groups of indices
-# Keys should match callback_data prefixes (e.g., 'log_wellness')
-# Types: 'numeric_multi', 'weight_time', 'numeric_single', 'text_single'
+LEGACY_SCHEMA_MAP = {
+    'DATE_COL_IDX': 1,       # Column B
+    'WEIGHT_COL_IDX': 2,     # Column C
+    'WEIGHT_TIME_COL_IDX': 3, # Column D
+    'SLEEP_HOURS_COL_IDX': 4, # Column E (was SLEEP_COL_IDX)
+    'SLEEP_QUALITY_COL_IDX': 5, # Column F
+    'STEPS_COL_IDX': 6,      # Column G
+    'CARDIO_COL_IDX': 7,     # Column H
+    'TRAINING_COL_IDX': 8,   # Column I
+    'ENERGY_COL_IDX': 9,     # Column J
+    'MOOD_COL_IDX': 10,      # Column K
+    'SATIETY_COL_IDX': 11,   # Column L
+    'DIGESTION_COL_IDX': 12, # Column M
+    'CALORIES_COL_IDX': 13,  # Column N
+    'PROTEIN_COL_IDX': 14,   # Column O
+    'CARBS_COL_IDX': 15,     # Column P
+    'FAT_COL_IDX': 16,       # Column Q
+    'FIBER_COL_IDX': 17,     # Column R
+    'WATER_COL_IDX': 18      # Column S (was H2O_COL_IDX)
+}
+
+# Default starting row index (0-based) for each schema type
+DEFAULT_FIRST_DATA_ROW = {
+    'template': 1, # Row 2 in sheets
+    'legacy': 9    # Row 10 in sheets
+}
+
+# --- Global Placeholders (No longer used directly for indices) ---
+# These constants are now resolved dynamically per bot based on schema_type
+# DATE_COL_IDX = 0 # REMOVED
+# ... other _COL_IDX removed ...
+# FIRST_DATA_ROW_IDX = 1 # REMOVED
+
+# Dictionary to map conversational choices to metric details
+# This now primarily defines the *logic* (prompt, type, number of values)
+# The actual column indices are retrieved dynamically based on the bot's schema
 LOGGING_CHOICES_MAP = {
     'wellness': {
         'prompt': "Energy Mood Satiety Digestion (4 numbers space-separated, e.g., 8 9 7 3):",
-        'cols': [ENERGY_COL_IDX, MOOD_COL_IDX, SATIETY_COL_IDX, DIGESTION_COL_IDX],
-        'type': 'numeric_multi'
+        'type': 'numeric_multi',
+        'metrics': ['ENERGY_COL_IDX', 'MOOD_COL_IDX', 'SATIETY_COL_IDX', 'DIGESTION_COL_IDX'], # Standardized keys
+        'num_values': 4
     },
     'sleep': {
         'prompt': "Sleep Hours Quality (2 numbers space-separated, e.g., 7.5 8):",
-        'cols': [SLEEP_COL_IDX, SLEEP_QUALITY_COL_IDX],
-        'type': 'numeric_multi'
+        'type': 'numeric_multi',
+        'metrics': ['SLEEP_HOURS_COL_IDX', 'SLEEP_QUALITY_COL_IDX'], # Standardized keys
+        'num_values': 2
     },
     'weight': {
         'prompt': "Weight [Time] (e.g., 85.5 0930 or just 85.5):",
-        'cols': [WEIGHT_COL_IDX, WEIGHT_TIME_COL_IDX],
-        'type': 'weight_time'
+        'type': 'weight_time',
+        'metrics': ['WEIGHT_COL_IDX', 'WEIGHT_TIME_COL_IDX'], # Standardized keys
+        'num_values': 1 # Base value is weight
     },
     'steps': {
         'prompt': "Steps:",
-        'cols': [STEPS_COL_IDX],
-        'type': 'numeric_single'
+        'type': 'numeric_single',
+        'metrics': ['STEPS_COL_IDX'], # Standardized key
+        'num_values': 1
     },
     'cardio': {
         'prompt': "Cardio details (text):",
-        'cols': [CARDIO_COL_IDX],
-        'type': 'text_single'
+        'type': 'text_single',
+        'metrics': ['CARDIO_COL_IDX'], # Standardized key
+        'num_values': 1
     },
     'training': {
         'prompt': "Training details (text):",
-        'cols': [TRAINING_COL_IDX],
-        'type': 'text_single'
+        'type': 'text_single',
+        'metrics': ['TRAINING_COL_IDX'], # Standardized key
+        'num_values': 1
     },
-    # 'h2o': { # Optional
-    #     'prompt': "Water Intake (e.g., glasses, L):",
-    #     'cols': [H2O_COL_IDX],
-    #     'type': 'numeric_single' # Or text depending on how you track
-    # },
+    'water': {
+        'prompt': "Water Intake (e.g., glasses, L):",
+        'type': 'numeric_single',
+        'metrics': ['WATER_COL_IDX'], # Standardized key
+        'num_values': 1
+    },
 }
 
 # Nutrient IDs for USDA API (Common ones, verify if needed)

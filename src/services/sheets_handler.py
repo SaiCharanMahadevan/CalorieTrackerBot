@@ -4,12 +4,13 @@ import os
 import json
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional
-from src.config.config import PROTEIN_COL_IDX, CARBS_COL_IDX, FAT_COL_IDX, FIBER_COL_IDX, SCOPES, DATE_COL_IDX, FIRST_DATA_ROW_IDX
+from typing import Dict, Optional
+from src.config.config import SCOPES
 from src.config.config_loader import get_config
 import gspread
 from google.oauth2 import service_account
 import threading
+from gspread.exceptions import APIError, WorksheetNotFound
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -99,12 +100,12 @@ def _get_worksheet(sheet_id: str, worksheet_name: str) -> Optional[gspread.Works
             _worksheet_cache[cache_key] = worksheet
             logger.info(f"Successfully fetched and cached worksheet for key: {cache_key}")
             return worksheet
-        except gspread.exceptions.APIError as e:
-            logger.error(f"gspread API Error accessing sheet '{sheet_id}', worksheet '{worksheet_name}': {e}", exc_info=True)
+        except APIError as e:
+            logger.error(f"API Error accessing sheet '{sheet_id}', worksheet '{worksheet_name}': {e}", exc_info=True)
             if e.response.status_code == 403:
                  logger.error("Permission denied. Ensure the service account email has editor access to the sheet.")
             return None
-        except gspread.exceptions.WorksheetNotFound:
+        except WorksheetNotFound:
             logger.error(f"Worksheet named '{worksheet_name}' not found in Google Sheet ID '{sheet_id}'.")
             return None
         except Exception as e:
@@ -115,70 +116,146 @@ def format_date_for_sheet(dt_obj: datetime) -> str:
     """Formats a date object into the string format used in the sheet (e.g., 'Jul 16')."""
     return dt_obj.strftime('%b %d')
 
-def find_row_by_date(sheet_id: str, worksheet_name: str, target_dt: datetime) -> int | None:
-    """Finds the row index (0-based) for a given date in the specified sheet/worksheet.
-    Args:
-        sheet_id: The ID of the Google Sheet.
-        worksheet_name: The name of the worksheet within the sheet.
-        target_dt: The date object to search for.
-    Returns:
-        The 0-based row index if found, otherwise None.
-    """
-    worksheet = _get_worksheet(sheet_id, worksheet_name)
-    if not worksheet:
-        return None
-
-    target_date_str = format_date_for_sheet(target_dt)
-    logger.info(f"Searching for date string: {target_date_str} in {sheet_id}/{worksheet_name}")
+def find_row_by_date(sheet_id: str, worksheet_name: str, target_dt: datetime, bot_token: str) -> int | None:
+    """Finds the row index for a given date in the worksheet.
+    Returns 0-based row index if found, None if not found."""
     try:
-        date_col_values = worksheet.col_values(DATE_COL_IDX + 1)
-        data_rows_values = date_col_values[FIRST_DATA_ROW_IDX:]
-        relative_index = data_rows_values.index(target_date_str)
-        absolute_index = FIRST_DATA_ROW_IDX + relative_index
-        logger.info(f"Found date '{target_date_str}' at row index: {absolute_index} in {sheet_id}/{worksheet_name}")
-        return absolute_index
-    except ValueError:
-        logger.info(f"Date string '{target_date_str}' not found in column {DATE_COL_IDX + 1} of {sheet_id}/{worksheet_name}.")
+        worksheet = _get_worksheet(sheet_id, worksheet_name)
+        if not worksheet: return None # Added early exit
+
+        target_date = format_date_for_sheet(target_dt)
+
+        # Get the bot's specific configuration
+        config = get_config()
+        bot_config = config.get_bot_config_by_token(bot_token)
+        if not bot_config:
+            logger.error(f"Could not find config for bot {bot_token[:6]}... in find_row_by_date")
+            return None
+        column_map = bot_config['column_map']
+        first_data_row = bot_config['first_data_row']
+        date_col_idx = column_map.get('DATE_COL_IDX')
+        if date_col_idx is None:
+             logger.error(f"Schema Error: DATE_COL_IDX not found in map for bot {bot_token[:6]}...")
+             return None
+
+        # Get the date column values, starting from first_data_row
+        # We only need to fetch up to the last row with data
+        last_row = worksheet.row_count
+        if last_row <= first_data_row:
+            logger.debug(f"No data rows found in worksheet (last_row: {last_row}, first_data_row: {first_data_row})")
+            return None
+
+        # Fetch only the date column values from first_data_row to last_row
+        date_range = f"{gspread.utils.rowcol_to_a1(first_data_row + 1, date_col_idx + 1)}:{gspread.utils.rowcol_to_a1(last_row, date_col_idx + 1)}"
+        date_values = worksheet.get(date_range)
+
+        # Search for the target date in the fetched values
+        for i, row in enumerate(date_values):
+            # Skip empty cells
+            if not row or not row[0]:
+                continue
+
+            # Compare the date value
+            if row[0] == target_date:
+                # Convert to 0-based index and add first_data_row offset
+                return i + first_data_row
+
+        logger.debug(f"Date {target_date} not found in worksheet")
         return None
+
     except Exception as e:
-        logger.error(f"Error reading date column {DATE_COL_IDX + 1} from {sheet_id}/{worksheet_name}: {e}")
+        logger.error(f"Error finding row for date {target_dt}: {e}", exc_info=True) # Added exc_info
         return None
 
-def ensure_date_row(sheet_id: str, worksheet_name: str, target_dt: datetime) -> int | None:
-    """Finds row index (0-based) for a date, creates the row if it doesn't exist.
-    Args:
-        sheet_id: The ID of the Google Sheet.
-        worksheet_name: The name of the worksheet within the sheet.
-        target_dt: The date object.
-    Returns:
-        The 0-based row index of the existing or newly created row, or None on error.
-    """
-    row_index_0based = find_row_by_date(sheet_id, worksheet_name, target_dt)
-    if row_index_0based is not None:
-        return row_index_0based
-
-    # Date not found, try to append
-    target_date_str = format_date_for_sheet(target_dt)
-    logger.info(f"Date {target_date_str} not found in {sheet_id}/{worksheet_name}. Appending new row.")
-    worksheet = _get_worksheet(sheet_id, worksheet_name)
-    if not worksheet:
-        return None
-
+def ensure_date_row(sheet_id: str, worksheet_name: str, target_dt: datetime, bot_token: str) -> int | None:
+    """Finds or creates a row for the given date.
+    Returns 0-based row index if successful, None if failed."""
     try:
-        num_cols = worksheet.col_count
-        new_row_data = [''] * num_cols
-        new_row_data[DATE_COL_IDX] = target_date_str
-        worksheet.append_row(new_row_data, value_input_option='USER_ENTERED')
-        # Find the newly added row (it will be the last one)
-        # Re-fetch row count after append
-        new_row_index = worksheet.row_count - 1
-        logger.info(f"Appended new row for date: {target_date_str} at index {new_row_index} in {sheet_id}/{worksheet_name}")
-        return new_row_index
+        worksheet = _get_worksheet(sheet_id, worksheet_name)
+        if not worksheet: return None # Added early exit
+
+        target_date = format_date_for_sheet(target_dt)
+
+        # Get the bot's specific configuration
+        config = get_config()
+        bot_config = config.get_bot_config_by_token(bot_token)
+        if not bot_config:
+            logger.error(f"Could not find config for bot {bot_token[:6]}... in ensure_date_row")
+            return None
+        column_map = bot_config['column_map']
+        first_data_row = bot_config['first_data_row']
+        date_col_idx = column_map.get('DATE_COL_IDX')
+        if date_col_idx is None:
+             logger.error(f"Schema Error: DATE_COL_IDX not found in map for bot {bot_token[:6]}...")
+             return None
+
+        # Try to find existing row using the bot_token
+        row_idx = find_row_by_date(sheet_id, worksheet_name, target_dt, bot_token)
+        if row_idx is not None:
+            logger.debug(f"Found existing row {row_idx + 1} for date {target_date}")
+            return row_idx
+
+        # If not found, check if the sheet is empty or has no data rows
+        last_row = worksheet.row_count
+        if last_row <= first_data_row:
+            logger.info(f"Sheet is empty or has no data rows. Creating first row for date {target_date}")
+            # Create a new row with the date, using None for other cells
+            new_row = [None] * len(column_map)  # Use None instead of ""
+            new_row[date_col_idx] = target_date
+            # Use insert_row instead of append_row to handle potential first_data_row > 0
+            # Insert at the correct 1-based index
+            worksheet.insert_row(new_row, index=first_data_row + 1, value_input_option='USER_ENTERED')
+            logger.info(f"Inserted first data row at index {first_data_row}")
+            # Return the 0-based index of the newly created row
+            return first_data_row
+
+        # If sheet has rows but no matching date, find the appropriate position to insert
+        # Get all dates to determine where to insert the new row
+        date_range = f"{gspread.utils.rowcol_to_a1(first_data_row + 1, date_col_idx + 1)}:{gspread.utils.rowcol_to_a1(last_row, date_col_idx + 1)}"
+        date_values = worksheet.get(date_range)
+
+        # Find the first date that is later than our target date
+        insert_position = first_data_row # Start searching from the first data row
+        found_insert_pos = False
+        for i, row in enumerate(date_values):
+            current_row_index = first_data_row + i # 0-based index of the current row being checked
+            if not row or not row[0]:
+                continue
+
+            # Compare dates (assuming format is consistent)
+            try:
+                # Attempt to parse sheet date for comparison if needed, though string comparison might suffice for YYYY-MM-DD
+                sheet_date = row[0] # Assuming format_date_for_sheet produces comparable strings
+                if sheet_date > target_date:
+                    insert_position = current_row_index
+                    found_insert_pos = True
+                    break
+            except Exception as date_comp_err:
+                 logger.warning(f"Could not compare date '{row[0]}' with target '{target_date}' at row {current_row_index + 1}. Error: {date_comp_err}")
+                 # Decide how to handle comparison errors - maybe insert at end?
+                 continue # Skip this row for now
+
+        if not found_insert_pos:
+            # If no later date was found, insert after the last row checked
+            insert_position = first_data_row + len(date_values)
+
+        # Create a new row with the date, using None for other cells
+        new_row = [None] * len(column_map)  # Use None instead of ""
+        new_row[date_col_idx] = target_date
+
+        # Insert the row at the determined 0-based position (convert to 1-based for gspread)
+        insert_index_1based = insert_position + 1
+        logger.debug(f"Inserting new row for date {target_date} at 1-based index {insert_index_1based}")
+        # Use insert_rows (plural) which takes a list of rows
+        worksheet.insert_rows([new_row], row=insert_index_1based, value_input_option='USER_ENTERED')
+
+        return insert_position # Return the 0-based index where inserted
+
     except Exception as e:
-        logger.error(f"Error appending new row for date {target_date_str} to {sheet_id}/{worksheet_name}: {e}")
+        logger.error(f"Error ensuring row for date {target_dt}: {e}", exc_info=True)
         return None
 
-def update_metrics(sheet_id: str, worksheet_name: str, target_dt: datetime, metric_updates: dict) -> bool:
+def update_metrics(sheet_id: str, worksheet_name: str, target_dt: datetime, metric_updates: dict, bot_token: str) -> bool:
     """Updates one or more metric cells for a given date in the specified sheet/worksheet.
     Args:
         sheet_id: The ID of the Google Sheet.
@@ -186,6 +263,7 @@ def update_metrics(sheet_id: str, worksheet_name: str, target_dt: datetime, metr
         target_dt: The date object for the row to update.
         metric_updates: A dictionary where keys are 0-based column indices
                         and values are the new values to write.
+        bot_token: The token of the bot making the request.
     Returns:
         True if successful, False otherwise.
     """
@@ -193,7 +271,8 @@ def update_metrics(sheet_id: str, worksheet_name: str, target_dt: datetime, metr
         logger.warning("update_metrics called with no updates specified.")
         return True # No update needed is success
 
-    row_index_0based = ensure_date_row(sheet_id, worksheet_name, target_dt)
+    # Pass bot_token to ensure_date_row
+    row_index_0based = ensure_date_row(sheet_id, worksheet_name, target_dt, bot_token)
     if row_index_0based is None:
         logger.error(f"Could not find/create row for {format_date_for_sheet(target_dt)} in {sheet_id}/{worksheet_name} to update metrics.")
         return False
@@ -220,19 +299,20 @@ def update_metrics(sheet_id: str, worksheet_name: str, target_dt: datetime, metr
             logger.info(f"Successfully updated {len(updates_for_batch)} metric(s) for {format_date_for_sheet(target_dt)} in {sheet_id}/{worksheet_name}.")
             return True
         except Exception as e:
-            logger.error(f"Error batch updating metrics for {format_date_for_sheet(target_dt)} in {sheet_id}/{worksheet_name}: {e}")
+            logger.error(f"Error batch updating metrics for {format_date_for_sheet(target_dt)} in {sheet_id}/{worksheet_name}: {e}", exc_info=True)
             return False
     else:
         logger.info(f"No metric updates prepared for {format_date_for_sheet(target_dt)} in {sheet_id}/{worksheet_name}.")
         return True
 
-def add_nutrition(sheet_id: str, worksheet_name: str, target_dt: datetime, calories: float = 0, p: float = 0, c: float = 0, f: float = 0, fi: float = 0) -> bool:
+def add_nutrition(sheet_id: str, worksheet_name: str, target_dt: datetime, bot_token: str, calories: float = 0, p: float = 0, c: float = 0, f: float = 0, fi: float = 0) -> bool:
     """Adds nutritional values (P, C, F, Fi) to the existing values in the sheet for the target date.
        Leaves the Calories column untouched to allow sheet formulas to calculate it.
     Args:
         sheet_id: The ID of the Google Sheet.
         worksheet_name: The name of the worksheet within the sheet.
         target_dt: The date object for the row to update.
+        bot_token: The token of the bot making the request.
         calories: Calories calculated from API (used for reporting but NOT written to sheet).
         p: Protein grams to add.
         c: Carbohydrate grams to add.
@@ -242,7 +322,26 @@ def add_nutrition(sheet_id: str, worksheet_name: str, target_dt: datetime, calor
     Returns:
         True if successful, False otherwise.
     """
-    row_index_0based = ensure_date_row(sheet_id, worksheet_name, target_dt)
+    # Get bot config to resolve nutrition column indices
+    config = get_config()
+    bot_config = config.get_bot_config_by_token(bot_token)
+    if not bot_config:
+        logger.error(f"Could not find config for bot {bot_token[:6]}... in add_nutrition")
+        return False
+    column_map = bot_config['column_map']
+
+    # Resolve nutrition indices dynamically
+    protein_idx = column_map.get('PROTEIN_COL_IDX')
+    carbs_idx = column_map.get('CARBS_COL_IDX')
+    fat_idx = column_map.get('FAT_COL_IDX')
+    fiber_idx = column_map.get('FIBER_COL_IDX')
+
+    if None in [protein_idx, carbs_idx, fat_idx, fiber_idx]:
+        logger.error(f"Schema Error: One or more nutrition columns not found in map for bot {bot_token[:6]}...")
+        return False
+
+    # Pass bot_token to ensure_date_row
+    row_index_0based = ensure_date_row(sheet_id, worksheet_name, target_dt, bot_token)
     if row_index_0based is None:
         logger.error(f"Could not find or create row for date {format_date_for_sheet(target_dt)} to add nutrition")
         return False
@@ -250,13 +349,12 @@ def add_nutrition(sheet_id: str, worksheet_name: str, target_dt: datetime, calor
     row_num_1based = row_index_0based + 1
     worksheet = _get_worksheet(sheet_id, worksheet_name)
 
-    # Define columns to update - EXCLUDE CALORIES_COL_IDX
+    # Define columns to update using RESOLVED indices
     cols_to_update = {
-        # config.CALORIES_COL_IDX: calories, # Excluded: Let sheet formula calculate
-        PROTEIN_COL_IDX: p,
-        CARBS_COL_IDX: c,
-        FAT_COL_IDX: f,
-        FIBER_COL_IDX: fi
+        protein_idx: p,
+        carbs_idx: c,
+        fat_idx: f,
+        fiber_idx: fi
     }
     updates = [] # For batch update
 
