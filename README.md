@@ -245,13 +245,13 @@ This script handles:
 
 This directory contains template files for setting up your Google Sheet to work with the Calorie Tracker Bot:
 
-1. `template_sheet_schema.md` - Detailed documentation of the required Google Sheets structure, including:
+1. `docs/template_sheet_schema.md` - Detailed documentation of the required Google Sheets structure, including:
    - Column specifications and data types
    - Setup instructions
    - Configuration steps
    - Tips and troubleshooting
 
-2. `template_sheet.csv` - A CSV file that you can import into Google Sheets to quickly create a properly formatted sheet:
+2. `docs/template_sheet.csv` - A CSV file that you can import into Google Sheets to quickly create a properly formatted sheet:
    - Contains all required column headers
    - Includes an example row showing correct data formats
    - Can be imported directly into Google Sheets
@@ -259,7 +259,7 @@ This directory contains template files for setting up your Google Sheet to work 
 ## Quick Start
 
 1. Create a new Google Sheet
-2. Go to File > Import > Upload > Select `template_sheet.csv`
+2. Go to File > Import > Upload > Select `docs/template_sheet.csv`
 3. Choose "Replace current sheet" when importing
 4. Name your worksheet "Daily Tracking" (or update the config to match your chosen name)
 5. Share the sheet with your bot's service account email
@@ -268,4 +268,4 @@ This directory contains template files for setting up your Google Sheet to work 
 
 ## Detailed Setup
 
-For complete setup instructions and schema details, please refer to `template_sheet_schema.md`.
+For complete setup instructions and schema details, please refer to `docs/template_sheet_schema.md`.

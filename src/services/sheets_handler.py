@@ -186,8 +186,8 @@ def ensure_date_row(sheet_id: str, worksheet_name: str, target_dt: datetime, bot
         first_data_row = bot_config['first_data_row']
         date_col_idx = column_map.get('DATE_COL_IDX')
         if date_col_idx is None:
-             logger.error(f"Schema Error: DATE_COL_IDX not found in map for bot {bot_token[:6]}...")
-             return None
+            logger.error(f"Schema Error: DATE_COL_IDX not found in map for bot {bot_token[:6]}...")
+            return None
 
         # Try to find existing row using the bot_token
         row_idx = find_row_by_date(sheet_id, worksheet_name, target_dt, bot_token)

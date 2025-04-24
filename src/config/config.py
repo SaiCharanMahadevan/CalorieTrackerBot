@@ -98,13 +98,24 @@ DEFAULT_FIRST_DATA_ROW = {
 # The actual column indices are retrieved dynamically based on the bot's schema
 LOGGING_CHOICES_MAP = {
     'wellness': {
-        'prompt': "Energy Mood Satiety Digestion (4 numbers space-separated, e.g., 8 9 7 3):",
+        'prompt': (
+            "Log Wellness (Energy Mood Satiety Digestion) - space-separated, e.g., 8 9 7 3\n\n"
+            "Scales (1-10, Digestion 0-7):\n"
+            "⚡️ Energy: 1=Zombie <-> 10=Buzzin'\n"
+            "😊 Mood:   1=I Hate Life <-> 10=I Love Life\n"
+            "🍴 Satiety: 1=Ravenous <-> 10=Satisfied\n"
+            "💩 Digestion: 0=No Stool, 1-7=Bristol Chart"
+        ),
         'type': 'numeric_multi',
         'metrics': ['ENERGY_COL_IDX', 'MOOD_COL_IDX', 'SATIETY_COL_IDX', 'DIGESTION_COL_IDX'], # Standardized keys
         'num_values': 4
     },
     'sleep': {
-        'prompt': "Sleep Hours Quality (2 numbers space-separated, e.g., 7.5 8):",
+        'prompt': (
+            "Log Sleep (Hours Quality) - space-separated, e.g., 7.5 8\n\n"
+            "Scale (1-10):\n"
+            "😴 Quality: 1=Restless <-> 10=Well Rested"
+        ),
         'type': 'numeric_multi',
         'metrics': ['SLEEP_HOURS_COL_IDX', 'SLEEP_QUALITY_COL_IDX'], # Standardized keys
         'num_values': 2

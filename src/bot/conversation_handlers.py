@@ -475,10 +475,12 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
         
         # --- Plain text prompt --- 
         prompt_text = (
-            f"{current_vals_text}" # Use direct values
-            f"Okay, please send the corrected Protein, Carbs, Fat, Fiber values (space-separated):\n"
-            f"P C F Fi\n\n"
-            f"Example: 35 40 20 8"
+            f"{current_vals_text}"
+            f"**(Note: Calories are calculated automatically from macros)**\n\n"
+            f"Please send the **4 corrected values** in this exact order (space-separated):\n"
+            f"*Protein* *Carbs* *Fat* *Fiber*\n\n"
+            f"Example: `35 40 20 8`\n"
+            f"(This means 35g Protein, 40g Carbs, 20g Fat, 8g Fiber)"
         )
         
         await query.edit_message_text(
