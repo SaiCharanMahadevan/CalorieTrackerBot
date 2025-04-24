@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 from datetime import date
 import dateparser
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 
@@ -14,6 +14,8 @@ from src.services.meal_parser import parse_meal_text_with_gemini, parse_meal_ima
 from src.services.nutrition_api import get_nutrition_for_items
 # Need the helper to get config for the current bot
 from .helpers import _get_current_sheet_config
+# Import the new audio processor
+from src.services.audio_processor import transcribe_audio
 
 logger = logging.getLogger(__name__)
 
@@ -334,97 +336,129 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
     bot_token_snippet = correct_bot.token[:6] + "..." if correct_bot.token else "Unknown"
     # --------------------------------
     
-    # --- Send message using correct bot ---
-    logger.info(f"received_meal_description: Sending processing message using bot {bot_token_snippet}")
-    processing_message = await correct_bot.send_message( # <<< Use correct_bot
+    processing_message = await correct_bot.send_message(
         chat_id,
-        f"Processing meal for {sheet_date_str}... hang tight!"
+        f"Processing your input for {sheet_date_str}... hang tight!"
     )
-    # -------------------------------------
-    
+
     parsed_items = None
-    # Check if the message contains a photo
-    if update.message.photo:
-        # Get the largest photo (best quality)
-        photo = update.message.photo[-1]
-        
-        # --- Get file using correct bot ---
-        logger.info(f"received_meal_description: Getting photo file using bot {bot_token_snippet}")
-        photo_file = await correct_bot.get_file(photo.file_id) # <<< Use correct_bot
-        # ----------------------------------
-        
-        photo_data_bytearray = await photo_file.download_as_bytearray()
-        photo_data_bytes = bytes(photo_data_bytearray) # Convert to bytes
-        
-        # Parse the meal image
-        logger.info(f"Parsing meal image for {sheet_date_str}")
-        parsed_items = parse_meal_image_with_gemini(photo_data_bytes) # Pass bytes
-        
+    transcript = None # Variable to hold transcript if audio is processed
+
+    # --- Handle different input types --- #
+    try:
+        if update.message.text:
+            # Process text description (existing logic)
+            meal_text = update.message.text
+            logger.info(f"Parsing meal text: {meal_text}")
+            await processing_message.edit_text(f"Parsing description: \"{meal_text[:30]}...\" for {sheet_date_str}")
+            parsed_items = parse_meal_text_with_gemini(meal_text or " ")
+
+        elif update.message.voice or update.message.audio:
+            # Process voice/audio message
+            logger.info(f"Processing {'voice' if update.message.voice else 'audio'} message.")
+            await processing_message.edit_text(f"Transcribing audio for {sheet_date_str}...")
+            
+            audio_obj = update.message.voice or update.message.audio
+            audio_file = await correct_bot.get_file(audio_obj.file_id)
+            audio_data_bytearray = await audio_file.download_as_bytearray()
+            audio_bytes = bytes(audio_data_bytearray)
+            logger.info(f"Downloaded audio ({len(audio_bytes)} bytes).")
+
+            # Transcribe audio
+            transcript = await transcribe_audio(audio_bytes)
+
+            if not transcript:
+                logger.warning("Audio transcription failed or returned empty.")
+                await processing_message.edit_text("Sorry, I couldn't transcribe the audio. Please try describing the meal in text.")
+                return AWAIT_MEAL_INPUT # Allow retry with text
+
+            logger.info(f"Audio transcribed. Parsing transcript: {transcript[:50]}...")
+            await processing_message.edit_text(f"Parsing transcript: \"{transcript[:30]}...\" for {sheet_date_str}")
+            parsed_items = parse_meal_text_with_gemini(transcript)
+
+        elif update.message.photo:
+            # Process photo (existing logic)
+            logger.info("Processing photo message.")
+            await processing_message.edit_text(f"Processing image for {sheet_date_str}...")
+            photo = update.message.photo[-1]
+            photo_file = await correct_bot.get_file(photo.file_id)
+            photo_data_bytearray = await photo_file.download_as_bytearray()
+            photo_data_bytes = bytes(photo_data_bytearray)
+            logger.info(f"Downloaded photo ({len(photo_data_bytes)} bytes).")
+            
+            logger.info(f"Parsing meal image for {sheet_date_str}")
+            parsed_items = parse_meal_image_with_gemini(photo_data_bytes)
+
+        else:
+            logger.warning("Received unexpected message type in AWAIT_MEAL_INPUT state.")
+            await processing_message.edit_text("Please send meal description text, a photo, or a voice message.")
+            return AWAIT_MEAL_INPUT
+
+        # --- Common Logic: Check Parsing, Lookup Nutrition, Show Confirmation --- #
         if not parsed_items:
-            # Edit message should work as it uses the message ID
-            await processing_message.edit_text("Sorry, I couldn't identify food items in the image. Please try again with a clearer photo or describe the meal in text.")
+            error_message = "Sorry, I couldn't understand the food items" 
+            if transcript:
+                 error_message += f" in the transcript: \"{transcript[:50]}...\"."
+            elif update.message.photo:
+                error_message = "Sorry, I couldn't identify food items in the image."
+            else:
+                error_message += "."
+            error_message += " Please try again."
+            await processing_message.edit_text(error_message)
             return AWAIT_MEAL_INPUT # Allow retry
-    elif update.message.text:
-        # Process text description
-        meal_text = update.message.text
-        logger.info(f"Parsing meal text: {meal_text}")
-        parsed_items = parse_meal_text_with_gemini(meal_text or " ")
-        
-        if not parsed_items:
-            # Edit message should work
-            await processing_message.edit_text("Sorry, I couldn't understand the food items. Please try again.")
+
+        parsed_items_str = "\n".join([f"- {i['item']} ({i['quantity_g']:.0f}g)" for i in parsed_items])
+        message_text = f"Parsed items from your input:\n{parsed_items_str}\n\nLooking up nutrition..."
+        await processing_message.edit_text(message_text)
+
+        nutrition_info = get_nutrition_for_items(parsed_items)
+        if not nutrition_info:
+            await processing_message.edit_text("Sorry, I couldn't retrieve nutritional information. Please try again.")
             return AWAIT_MEAL_INPUT # Allow retry
-    else:
-        # Edit message should work
-        await processing_message.edit_text("Please send meal description text or a photo.")
-        return AWAIT_MEAL_INPUT
-            
-    # --- Nutrition Lookup and Confirmation (Common for both image and text) ---
-    if not parsed_items:
-        logger.error("Parsing seemed successful but parsed_items is None. Aborting meal log.")
-        await processing_message.edit_text("Sorry, an internal error occurred during parsing. Please try again.")
-        return AWAIT_MEAL_INPUT
-            
-    parsed_items_str = "\n".join([f"- {i['item']} ({i['quantity_g']:.0f}g)" for i in parsed_items])
-    message_text = f"Parsed items:\n{parsed_items_str}\n\nLooking up nutrition..."
-    await processing_message.edit_text(message_text)
-    
-    nutrition_info = get_nutrition_for_items(parsed_items)
-    if not nutrition_info:
-        await processing_message.edit_text("Sorry, I couldn't retrieve nutritional information. Please try again.")
-        return AWAIT_MEAL_INPUT # Allow retry
-            
-    context.user_data['nutrition_info'] = nutrition_info
-    context.user_data['parsed_items'] = parsed_items
-    
-    # --- MODIFIED Confirmation Text and Buttons ---
-    confirmation_text = (
-        f"I parsed this meal for {sheet_date_str}:\n\n"
-        f"Items:\n{parsed_items_str}\n\n"
-        f"Estimated Nutrition:\n"
-        f"- Calories: {nutrition_info.get('calories', 0):.0f}\n"
-        f"- Protein: {int(nutrition_info.get('protein', 0))}g\n"
-        f"- Carbs: {int(nutrition_info.get('carbs', 0))}g\n"
-        f"- Fat: {int(nutrition_info.get('fat', 0))}g\n"
-        f"- Fiber: {int(nutrition_info.get('fiber', 0))}g\n\n"
-        f"What would you like to do?"
-    )
-    escaped_confirmation_text = confirmation_text
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Add Meal", callback_data='confirm_meal_yes'),
-            InlineKeyboardButton("✏️ Edit Macros", callback_data='edit_macros'), # New button
-            InlineKeyboardButton("❌ Cancel", callback_data='confirm_meal_no')
+
+        context.user_data['nutrition_info'] = nutrition_info
+        context.user_data['parsed_items'] = parsed_items
+
+        # --- Construct Confirmation Text --- #
+        confirmation_text = (
+            f"I parsed this meal for {sheet_date_str}:\n\n"
+            f"Items:\n{parsed_items_str}\n\n"
+            f"Estimated Nutrition:\n"
+            f"- Calories: {nutrition_info.get('calories', 0):.0f}\n"
+            f"- Protein: {int(nutrition_info.get('protein', 0))}g\n"
+            f"- Carbs: {int(nutrition_info.get('carbs', 0))}g\n"
+            f"- Fat: {int(nutrition_info.get('fat', 0))}g\n"
+            f"- Fiber: {int(nutrition_info.get('fiber', 0))}g\n\n"
+            f"What would you like to do?"
+        )
+        # --- Escape the text for MarkdownV2 --- #
+        escaped_confirmation_text = escape_markdown(confirmation_text, version=2)
+
+        # --- Define Buttons --- #
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Add Meal", callback_data='confirm_meal_yes'),
+                InlineKeyboardButton("✏️ Edit Macros", callback_data='edit_macros'),
+                InlineKeyboardButton("❌ Cancel", callback_data='confirm_meal_no')
+            ]
         ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await processing_message.edit_text(
-        escaped_confirmation_text,
-        reply_markup=reply_markup,
-    )
-    return AWAIT_MEAL_CONFIRMATION
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # --- Send Confirmation Message --- #
+        await processing_message.edit_text(
+            text=escaped_confirmation_text, # Use escaped text
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return AWAIT_MEAL_CONFIRMATION
+
+    except Exception as e:
+        logger.error(f"Error in received_meal_description: {e}", exc_info=True)
+        try:
+            await processing_message.edit_text("Sorry, an unexpected error occurred while processing your input.")
+        except Exception as report_err:
+            logger.error(f"Failed to report error to user: {report_err}")
+        return ConversationHandler.END # End on error
 
 async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query

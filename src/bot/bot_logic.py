@@ -49,7 +49,9 @@ def create_telegram_application(default_token: str) -> Application:
                 CallbackQueryHandler(received_metric_choice) # Imported
             ],
             AWAIT_MEAL_INPUT: [
-                MessageHandler(filters.TEXT | filters.PHOTO, received_meal_description) # Imported
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_meal_description),
+                MessageHandler(filters.PHOTO, received_meal_description),
+                MessageHandler(filters.VOICE | filters.AUDIO, received_meal_description)
             ],
             AWAIT_MEAL_CONFIRMATION: [
                 CallbackQueryHandler(received_meal_confirmation, pattern='^confirm_meal_'), # Imported

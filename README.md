@@ -2,13 +2,11 @@
 
 This bot allows you to log daily health metrics (like weight, sleep, steps) and meals via Telegram. It parses meal descriptions, looks up nutritional information (using USDA FoodData Central API and Google Gemini), and records the data in a designated Google Sheet.
 
-**New in v1.1:** Now supports multiple bot instances, each linked to its own Google Sheet and configuration!
-
 ## Features
 
 *   **Multi-Bot Support:** Run multiple independent bot instances from a single application deployment. Each bot uses its own configuration (Google Sheet, allowed users).
 *   Log various health metrics for specific dates (defaults to today).
-*   Log meals using natural language descriptions (e.g., "150g chicken and 1 cup broccoli") or by sending photos.
+*   Log meals using **natural language descriptions** (e.g., "150g chicken and 1 cup broccoli"), **by sending photos**, or **via voice/audio messages within the /newlog conversation**.
 *   Automatically calculates estimated Calories, Protein, Carbs, Fat, and Fiber for meals using Google Gemini and USDA FoodData Central.
 *   Adds meal nutrition data cumulatively to the specified date in the bot's designated Google Sheet.
 *   Updates other metrics (Weight, Sleep, etc.) by overwriting the value for the specified date in the bot's designated Google Sheet.
@@ -145,8 +143,8 @@ Talk to any of your configured bots on Telegram:
 
 *   `/start`: Get a welcome message.
 *   `/help`: See command usage details.
-*   `/log [date] [metric] [value]`: Log data (see `/help` for examples).
-*   `/newlog`: Start a guided conversation to log multiple items (Recommended for meals).
+*   `/log [date] [metric] [value]`: Log data (see `/help` for examples). Note: Does not support audio logging.
+*   `/newlog`: Start a guided conversation to log multiple items. Supports **text, photo, and voice/audio input** for meals.
 *   `/cancel`: Cancel the current conversation if it's stuck or you want to start over.
 
 Data will be logged to the Google Sheet associated with the specific bot you are interacting with.
@@ -196,6 +194,7 @@ This script handles:
 │   ├── services/          # Core services (external APIs, parsing)
 │   │   ├── sheets_handler.py # Interacts with Google Sheets API
 │   │   ├── meal_parser.py # Parses meal text/images using Gemini
+│   │   ├── audio_processor.py # Transcribes voice/audio messages using Gemini
 │   │   ├── nutrition_api.py # Fetches nutrition data from USDA API
 │   │   ├── ai_models.py   # Initializes AI models (e.g., Gemini)
 │   │   └── __init__.py
@@ -228,8 +227,13 @@ This script handles:
     *   **`helpers.py`:** Contains utility functions specifically for the bot handlers (e.g., getting bot config, error handling).
 *   **`src/config/config_loader.py`:** Loads shared config and bot-specific configs from `bot_configs.json` and environment variables.
 *   **`src/services/` directory:** Contains modules responsible for interacting with external APIs and performing core data processing.
+    *   **`sheets_handler.py`:** Interacts with Google Sheets API.
+    *   **`meal_parser.py`:** Parses meal text/images using Gemini.
+    *   **`audio_processor.py`:** Transcribes voice/audio messages using Gemini. 
+    *   **`nutrition_api.py`:** Fetches nutrition data from USDA API.
+    *   **`ai_models.py`:** Initializes AI models (e.g., Gemini).
 *   **`src/utils.py`:** Contains general utility functions used across the application.
-*   **`bot_configs.json`:** Defines configurations for multiple bots (tokens, sheet IDs, allowed users).
+*   **`bot_configs.json`:** Defines configurations for multiple bots (tokens, sheet IDs, allowed users, schema_type).
 *   **`scripts/run_local.sh`:** Sets up local dev environment and configures webhooks for all bots defined in `bot_configs.json` using ngrok.
 *   **`setup_webhook.sh`:** Manual script primarily for setting webhooks in a deployed environment like Render where `run_local.sh` isn't applicable.
 *   **(Other components as previously described - Docker config etc.)**

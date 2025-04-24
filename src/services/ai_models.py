@@ -57,6 +57,10 @@ class AIModelManager:
             'nutrition': {
                 'model_name': GEMINI_MODEL_NAME,
                 'description': 'Model for nutrition analysis'
+            },
+            'transcription': {
+                'model_name': GEMINI_MODEL_NAME,
+                'description': 'Model for transcribing audio'
             }
         }
         

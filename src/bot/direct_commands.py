@@ -3,6 +3,7 @@
 import logging
 from datetime import date
 import dateparser
+import html
 
 import telegram # Keep telegram (used for errors/classes)
 from telegram import Update, Bot
@@ -36,49 +37,52 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
     """Sends help information when the /help command is issued."""
-    metric_list_str = f"`{', '.join(LOGGING_CHOICES_MAP.keys())}`"
-    help_text_template = (
-        "*Commands:*\n"
-        " `/start`: Show welcome message.\n"
-        " `/help`: Show this help message.\n"
-        " `/log [metric] [value]`: Log data in a single line (see examples below).\n"
-        " `/newlog`: Start a guided conversation to log multiple items for a date (Recommended for meals).\n"
-        " `/cancel`: Cancel the current logging operation (e.g., during `/newlog`).\n\n"
-        "*Using /log:*\n"
-        " `/log [metric_type] [value_or_description]`\n"
-        " - `metric_type`: `meal` or one of: METRIC_PLACEHOLDER.\n"
-        " - `value_or_description`: Numeric value(s) or meal description.\n\n"
-        "*/log Examples:*\n"
-        " `/log weight 85.5` - Log weight in kg/lbs\n"
-        " `/log weight 85.5 0930` - Log weight with time (HHMM format)\n"
-        " `/log sleep 7.5 8` - Log sleep hours (7.5) and quality rating (8)\n"
-        " `/log steps 10000` - Log step count\n"
-        " `/log wellness 8 7 8 9` - Log energy, mood, satiety, digestion ratings\n"
-        " `/log cardio 30min run` - Log cardio activity\n"
-        " `/log training legs day` - Log training activity\n"
-        " `/log water 8` - Log water intake\n"
-        " `/log meal 150g chicken breast and 1 cup broccoli` - Quick meal log (no confirmation)\n"
-        " `/log meal` (with a photo attached) - Log a meal by sending a photo\n\n"
-        "*Using /newlog (Recommended for Meals):*\n"
-        " Just type `/newlog` and follow the prompts. Benefits:\n"
-        " - Choose the date for your entry\n"
-        " - Review parsed items before logging\n"
-        " - Edit nutrition values if needed\n"
-        " - Log multiple items for the same date\n"
-        " You can also send a photo of your meal during the process.\n\n"
-        "*Image Upload Feature:*\n"
-        " You can log meals by sending photos:\n"
-        " 1. During the `/newlog` conversation, when prompted\n"
-        " 2. Using `/log meal` with a photo attached\n"
-        " The bot will analyze the image, identify food items, estimate portions, and calculate nutrition.\n\n"
-        "*Important Notes:*\n"
-        " - All `/log` commands default to today's date\n"
-        " - To log for a different date, use `/newlog`\n"
-        " - For meals, `/newlog` is recommended as it provides confirmation and editing options\n"
-        " - Some metrics require multiple values (e.g., sleep needs hours and quality rating)"
+    # Escape the dynamic part using HTML escaping
+    metric_list_html = html.escape(f"`{', '.join(LOGGING_CHOICES_MAP.keys())}`")
+
+    # Use HTML tags for formatting
+    help_text = (
+        f"<b>Commands:</b> 📜\n"
+        f" `/start`: Show welcome message.\n"
+        f" `/help`: Show this help message.\n"
+        f" `/log [metric] [value]`: Log data in a single line (see examples below).\n"
+        f" `/newlog`: Start a guided conversation to log multiple items for a date (Recommended for meals).\n"
+        f" `/cancel`: Cancel the current logging operation (e.g., during `/newlog`).\n\n"
+        f"<b>Using /log:</b> ⌨️\n"
+        f" `/log [metric_type] [value_or_description]`\n"
+        f" - `metric_type`: <code>meal</code> or one of: {metric_list_html}.\n" # Use code tags for metrics
+        f" - `value_or_description`: Numeric value(s) or meal description.\n\n"
+        f"<b>/log Examples:</b> ✨\n"
+        f" `/log weight 85.5` - Log weight in kg/lbs\n"
+        f" `/log weight 85.5 0930` - Log weight with time (HHMM format)\n"
+        f" `/log sleep 7.5 8` - Log sleep hours (7.5) and quality rating (8)\n"
+        f" `/log steps 10000` - Log step count\n"
+        f" `/log wellness 8 7 8 9` - Log energy, mood, satiety, digestion ratings\n"
+        f" `/log cardio 30min run` - Log cardio activity\n"
+        f" `/log training legs day` - Log training activity\n"
+        f" `/log water 8` - Log water intake\n"
+        f" `/log meal 150g chicken breast and 1 cup broccoli` - Quick meal log (no confirmation)\n"
+        f" `/log meal` (with a photo attached) - Log a meal by sending a photo\n\n"
+        f"<b>Using /newlog (Recommended for Meals):</b> 💬\n"
+        f" Just type `/newlog` and follow the prompts. Benefits:\n"
+        f" - Choose the date for your entry\n"
+        f" - Review parsed items before logging\n"
+        f" - Edit nutrition values if needed\n"
+        f" - Log multiple items for the same date\n"
+        f" - Supports <b>text, photo, and voice/audio input</b> for meals!\n\n"
+        f"<b>Image Upload Feature:</b> 📷\n"
+        f" You can log meals by sending photos:\n"
+        f" 1. During the `/newlog` conversation, when prompted\n"
+        f" 2. Using `/log meal` with a photo attached\n"
+        f" The bot will analyze the image, identify food items, estimate portions, and calculate nutrition.\n\n"
+        f"<b>Audio/Voice Feature:</b> 🎤\n"
+        f" You can describe your meal using a voice message during the `/newlog` conversation when prompted for meal details.\n\n"
+        f"<b>Important Notes:</b> 📌\n"
+        f" - All `/log` commands default to today's date\n"
+        f" - To log for a different date, use `/newlog`\n"
+        f" - For meals, `/newlog` is recommended as it provides confirmation and editing options\n"
+        f" - Some metrics require multiple values (e.g., sleep needs hours and quality rating)"
     )
-    final_help_text = help_text_template.replace("METRIC_PLACEHOLDER", metric_list_str)
-    escaped_text = escape_markdown(final_help_text, version=2)
 
     chat_id = update.message.chat.id if update.message and update.message.chat else None
 
@@ -100,8 +104,8 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         # Use the bot instance associated with the specific update (internal attribute)
         await correct_bot.send_message( # <<< Use correct_bot (which is update._bot)
             chat_id=chat_id,
-            text=escaped_text,
-            parse_mode=ParseMode.MARKDOWN_V2
+            text=help_text, # Use the correctly formatted text
+            parse_mode=ParseMode.HTML # <-- Change parse mode to HTML
         )
         logger.info(f"Successfully sent help message to chat_id: {chat_id} using token {bot_token_snippet}")
     except telegram.error.BadRequest as e:
