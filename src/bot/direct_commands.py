@@ -333,20 +333,20 @@ async def _handle_text_log(update: Update, context: ContextTypes.DEFAULT_TYPE, s
             metric_keys = metric_info['metrics'] # Get the standardized keys
             logger.info(f"_handle_text_log: Processing metric '{metric_type}' with input type '{input_type}'")
 
-            # --- Logic for different metric types (moved from original function) ---
             if input_type == 'text_single':
                 # Resolve the single column index dynamically
-                col_idx = column_map.get(metric_keys[0])
+                col_key = metric_keys[0]
+                col_idx = column_map.get(col_key)
                 if col_idx is None:
-                     logger.error(f"Schema Error: Column key '{metric_keys[0]}' not found in map for bot {correct_bot.token[:6]}...")
-                     await update.message.reply_text(f"❌ Schema configuration error for '{metric_type}'.")
-                     return
-                metric_value = float(value_or_description) if input_type == 'numeric_single' else value_or_description
+                    logger.error(f"Schema Error: Column key '{col_key}' not found in map for bot {correct_bot.token[:6]}...")
+                    await update.message.reply_text(f"❌ Schema configuration error for '{metric_type}'.")
+                    return
+                # Use the resolved index col_idx
                 success = update_metrics(
                     sheet_id=sheet_id,
                     worksheet_name=worksheet_name,
                     target_dt=target_date,
-                    metric_updates={col_idx: metric_value}, # Pass resolved index
+                    metric_updates={col_idx: value_or_description},
                     bot_token=correct_bot.token
                 )
                 if success:
@@ -355,13 +355,21 @@ async def _handle_text_log(update: Update, context: ContextTypes.DEFAULT_TYPE, s
                     await update.message.reply_text(f"❌ Failed to update '{metric_type}' in Google Sheet.")
 
             elif input_type == 'numeric_single':
+                 # Resolve the single column index dynamically
+                col_key = metric_keys[0]
+                col_idx = column_map.get(col_key)
+                if col_idx is None:
+                    logger.error(f"Schema Error: Column key '{col_key}' not found in map for bot {correct_bot.token[:6]}...")
+                    await update.message.reply_text(f"❌ Schema configuration error for '{metric_type}'.")
+                    return
                 try:
                     value = float(value_or_description)
+                    # Use the resolved index col_idx
                     success = update_metrics(
                         sheet_id=sheet_id,
                         worksheet_name=worksheet_name,
                         target_dt=target_date,
-                        metric_updates={metric_keys[0]: value},
+                        metric_updates={col_idx: value},
                         bot_token=correct_bot.token
                     )
                     if success:
