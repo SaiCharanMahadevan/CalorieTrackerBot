@@ -1,19 +1,24 @@
 """Handlers for direct, non-conversational commands."""
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 import dateparser
 import html
+import statistics
 
 import telegram # Keep telegram (used for errors/classes)
 from telegram import Update, Bot
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
-from telegram.helpers import escape_markdown
 
 # Project imports
 from src.config.config import LOGGING_CHOICES_MAP # Keep this one
-from src.services.sheets_handler import update_metrics, add_nutrition, format_date_for_sheet
+from src.services.sheets_handler import (
+    update_metrics, 
+    add_nutrition, 
+    format_date_for_sheet, 
+    get_data_for_daterange # Import new function
+)
 from src.services.meal_parser import parse_meal_text_with_gemini, parse_meal_image_with_gemini
 from src.services.nutrition_api import get_nutrition_for_items
 # Need the helper to get config for the current bot
@@ -83,9 +88,9 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         f" - For meals, `/newlog` is recommended as it provides confirmation and editing options\n"
         f" - Some metrics require multiple values (e.g., sleep needs hours and quality rating)"
     )
-
+    
     chat_id = update.message.chat.id if update.message and update.message.chat else None
-
+    
     # --- Get the ACTUAL bot object (_bot) ---
     correct_bot = getattr(update, '_bot', None) # Use internal attribute
     bot_token_snippet = correct_bot.token[:6] + "..." if correct_bot and correct_bot.token else "Unknown"
@@ -94,16 +99,16 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Attempting to send help message to chat_id: {chat_id} using ACTUAL bot token: {bot_token_snippet}")
     if not chat_id:
         logger.error("Could not determine chat_id in help_command.")
-        return
+        return 
     if not correct_bot: # Check if _bot itself is valid
         logger.error(f"Could not access update._bot in help_command for update {update.update_id}.")
-        return
-
+        return 
+        
     # --- Use update._bot explicitly ---
     try:
         # Use the bot instance associated with the specific update (internal attribute)
         await correct_bot.send_message( # <<< Use correct_bot (which is update._bot)
-            chat_id=chat_id,
+            chat_id=chat_id, 
             text=help_text, # Use the correctly formatted text
             parse_mode=ParseMode.HTML # <-- Change parse mode to HTML
         )
@@ -139,31 +144,31 @@ async def _handle_photo_log(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     # --- Send processing message ---
     logger.info(f"_handle_photo_log: Sending processing message using bot {bot_token_snippet}")
     processing_message = await correct_bot.send_message(
-        chat_id,
-        "Processing meal image... hang tight!"
-    )
-
+            chat_id,
+            "Processing meal image... hang tight!"
+        )
+        
     try:
         # --- Photo processing logic (moved from original function) ---
         photo = update.message.photo[-1]
         logger.info(f"_handle_photo_log: Getting photo file using bot {bot_token_snippet}")
         photo_file = await correct_bot.get_file(photo.file_id)
-
+        
         photo_data_bytearray = await photo_file.download_as_bytearray()
         photo_data_bytes = bytes(photo_data_bytearray)
         logger.info(f"_handle_photo_log: Downloaded photo ({len(photo_data_bytes)} bytes).")
-
+        
         logger.info("_handle_photo_log: Calling parse_meal_image_with_gemini...")
         parsed_items = parse_meal_image_with_gemini(photo_data_bytes)
         logger.info(f"_handle_photo_log: parse_meal_image_with_gemini result: {parsed_items}")
-
+        
         if not parsed_items:
             await processing_message.edit_text("Sorry, I couldn't identify food items...")
             return
-
+        
         parsed_items_str = "\n".join([f"- {i['item']} ({i['quantity_g']:.0f}g)" for i in parsed_items])
         await processing_message.edit_text(f"Parsed items:\n{parsed_items_str}\n\nLooking up nutrition...")
-
+        
         logger.info("_handle_photo_log: Calling get_nutrition_for_items...")
         nutrition_info = get_nutrition_for_items(parsed_items)
         logger.info(f"_handle_photo_log: get_nutrition_for_items result: {nutrition_info}")
@@ -171,7 +176,7 @@ async def _handle_photo_log(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         if not nutrition_info:
             await processing_message.edit_text("Sorry, I couldn't retrieve nutritional information...")
             return
-
+        
         target_date = date.today() # Default to today for direct photo log
         sheet_date_str = format_date_for_sheet(target_date)
         logger.info("_handle_photo_log: Calling add_nutrition...")
@@ -187,7 +192,7 @@ async def _handle_photo_log(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             fi=nutrition_info.get('fiber', 0)
         )
         logger.info(f"_handle_photo_log: add_nutrition result: {success}")
-
+        
         if success:
             response_text = (
                 f"✅ Meal logged for {sheet_date_str}!\n"
@@ -491,4 +496,155 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles any command that doesn't match the known commands."""
     await update.message.reply_text(
         "Sorry, I didn't understand that command. Type /help to see available commands."
-    ) 
+    )
+
+# --- Helper Function for Average Calculation ---
+def _calculate_average(values: list) -> float | None:
+    """Calculates the average of a list, handling non-numeric types and empty lists."""
+    numeric_values = []
+    for v in values:
+        if v is None or v == '':
+            continue # Skip None or empty strings
+        try:
+            # Attempt to convert to float, removing commas if present
+            numeric_values.append(float(str(v).replace(',', '')))
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert value '{v}' (type: {type(v)}) to float for averaging.")
+            continue # Skip values that cannot be converted
+            
+    if not numeric_values:
+        return None # No valid values to average
+    return statistics.mean(numeric_values)
+
+# --- New Command Handlers --- 
+async def calories_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fetches and displays the calorie count for today."""
+    logger.info(f"calories_today_command triggered by user {update.effective_user.id}")
+    chat_id = update.effective_chat.id
+    
+    # --- Get Config and Bot --- 
+    sheet_config = _get_current_sheet_config(update)
+    correct_bot = getattr(update, '_bot', None)
+    if not sheet_config or not correct_bot:
+        logger.error("Missing config or bot instance in calories_today_command")
+        await update.message.reply_text("Internal configuration error. Please try again later.")
+        return
+    sheet_id = sheet_config['google_sheet_id']
+    worksheet_name = sheet_config['worksheet_name']
+    bot_token = correct_bot.token
+    # ------------------------
+
+    target_date = date.today()
+    target_date_str = format_date_for_sheet(target_date)
+    column_keys_to_fetch = ['CALORIES_COL_IDX']
+
+    try:
+        # Fetch data for today
+        data = get_data_for_daterange(
+            sheet_id=sheet_id,
+            worksheet_name=worksheet_name,
+            start_dt=target_date,
+            end_dt=target_date,
+            column_keys=column_keys_to_fetch,
+            bot_token=bot_token
+        )
+
+        if not data:
+            message = f"No data found for today ({target_date_str})."
+        else:
+            # Assuming only one row for today, get the first result
+            calories_raw = data[0].get('CALORIES_COL_IDX')
+            if calories_raw is None or calories_raw == '':
+                message = f"No calorie value logged for today ({target_date_str})."
+            else:
+                try:
+                    calories_value = float(str(calories_raw).replace(',', ''))
+                    message = f"🔥 Calories logged for today ({target_date_str}): <b>{calories_value:.0f}</b>"
+                except (ValueError, TypeError):
+                    logger.warning(f"Could not convert calorie value '{calories_raw}' to float for today.")
+                    message = f"Found a non-numeric calorie value ('{calories_raw}') for today ({target_date_str})."
+
+        await update.message.reply_html(message) # Use HTML for potential bolding
+
+    except Exception as e:
+        logger.error(f"Error in calories_today_command: {e}", exc_info=True)
+        await update.message.reply_text("Sorry, an error occurred while fetching today's calories.")
+
+async def weekly_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fetches and displays the weekly summary (averages)."""
+    logger.info(f"weekly_summary_command triggered by user {update.effective_user.id}")
+    chat_id = update.effective_chat.id
+
+    # --- Get Config and Bot --- 
+    sheet_config = _get_current_sheet_config(update)
+    correct_bot = getattr(update, '_bot', None)
+    if not sheet_config or not correct_bot:
+        logger.error("Missing config or bot instance in weekly_summary_command")
+        await update.message.reply_text("Internal configuration error. Please try again later.")
+        return
+    sheet_id = sheet_config['google_sheet_id']
+    worksheet_name = sheet_config['worksheet_name']
+    bot_token = correct_bot.token
+    # ------------------------
+
+    # --- Calculate Date Range (Sunday to Today) --- 
+    today = date.today()
+    # Sunday is weekday 6, Monday is 0. timedelta = days to subtract to get to last Sunday.
+    days_since_sunday = (today.weekday() + 1) % 7 
+    start_of_week = today - timedelta(days=days_since_sunday)
+    end_of_week = today # Summary up to today
+    
+    start_date_str = format_date_for_sheet(start_of_week)
+    end_date_str = format_date_for_sheet(end_of_week)
+    logger.info(f"Calculating weekly summary for: {start_date_str} to {end_date_str}")
+    # -------------------------------------------
+
+    column_keys_to_fetch = [
+        'SLEEP_HOURS_COL_IDX', 
+        'WEIGHT_COL_IDX', 
+        'STEPS_COL_IDX', 
+        'CALORIES_COL_IDX'
+    ]
+
+    try:
+        # Fetch data for the week
+        weekly_data = get_data_for_daterange(
+            sheet_id=sheet_id,
+            worksheet_name=worksheet_name,
+            start_dt=start_of_week,
+            end_dt=end_of_week,
+            column_keys=column_keys_to_fetch,
+            bot_token=bot_token
+        )
+
+        if not weekly_data:
+            await update.message.reply_html(f"No data found for the period {start_date_str} to {end_date_str}.")
+            return
+
+        # --- Aggregate data for averaging --- 
+        sleep_values = [row.get('SLEEP_HOURS_COL_IDX') for row in weekly_data]
+        weight_values = [row.get('WEIGHT_COL_IDX') for row in weekly_data]
+        steps_values = [row.get('STEPS_COL_IDX') for row in weekly_data]
+        calories_values = [row.get('CALORIES_COL_IDX') for row in weekly_data]
+        # ------------------------------------
+
+        # --- Calculate Averages --- 
+        avg_sleep = _calculate_average(sleep_values)
+        avg_weight = _calculate_average(weight_values)
+        avg_steps = _calculate_average(steps_values)
+        avg_calories = _calculate_average(calories_values)
+        # --------------------------
+
+        # --- Format Response --- 
+        response_lines = [f"📊 <b>Weekly Summary ({start_date_str} - {end_date_str})</b>\n"]
+        response_lines.append(f"😴 Avg Sleep: {avg_sleep:.1f} hours" if avg_sleep is not None else "😴 Avg Sleep: N/A")
+        response_lines.append(f"⚖️ Avg Weight: {avg_weight:.1f}" if avg_weight is not None else "⚖️ Avg Weight: N/A")
+        response_lines.append(f"🚶 Avg Steps: {avg_steps:.0f}" if avg_steps is not None else "🚶 Avg Steps: N/A")
+        response_lines.append(f"🔥 Avg Calories: {avg_calories:.0f}" if avg_calories is not None else "🔥 Avg Calories: N/A")
+        # -----------------------
+
+        await update.message.reply_html("\n".join(response_lines))
+
+    except Exception as e:
+        logger.error(f"Error in weekly_summary_command: {e}", exc_info=True)
+        await update.message.reply_text("Sorry, an error occurred while fetching the weekly summary.") 

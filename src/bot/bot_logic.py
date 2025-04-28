@@ -13,7 +13,10 @@ from telegram.ext import (
 )
 
 # --- Import handlers from new modules ---
-from .direct_commands import start, help_command, log_command_entry, unknown_command
+from .direct_commands import (
+    start, help_command, log_command_entry, unknown_command, 
+    calories_today_command, weekly_summary_command
+)
 from .conversation_handlers import (
     # Import states directly
     SELECTING_ACTION, AWAITING_METRIC_CHOICE, AWAIT_MEAL_INPUT, AWAIT_MEAL_CONFIRMATION, 
@@ -78,6 +81,11 @@ def create_telegram_application(default_token: str) -> Application:
     # --- Use IMPORTED handlers for direct commands ---
     application.add_handler(CommandHandler("start", start)) # Imported
     application.add_handler(CommandHandler("help", help_command)) # Imported
+    
+    # --- Register New Summary Commands ---
+    application.add_handler(CommandHandler("calories_today", calories_today_command))
+    application.add_handler(CommandHandler("weekly_summary", weekly_summary_command))
+    # -----------------------------------
     
     # --- Handlers for /log command --- 
     # Handler for /log in standard text messages

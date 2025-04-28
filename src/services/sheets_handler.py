@@ -442,4 +442,103 @@ def add_nutrition(sheet_id: str, worksheet_name: str, target_dt: datetime, bot_t
     else:
         # This case should ideally be caught by the `any` check earlier
         logger.info(f"No non-zero P, C, F, or Fi values were added for {format_date_for_sheet(target_dt)}.")
-        return True 
+        return True
+
+def get_data_for_daterange(sheet_id: str, worksheet_name: str, start_dt: datetime.date, end_dt: datetime.date, column_keys: list[str], bot_token: str) -> list[dict]:
+    """Fetches data for specified column keys within a date range.
+
+    Args:
+        sheet_id: The ID of the Google Sheet.
+        worksheet_name: The name of the worksheet.
+        start_dt: The start date of the range (inclusive).
+        end_dt: The end date of the range (inclusive).
+        column_keys: A list of standardized column keys (e.g., ['DATE_COL_IDX', 'CALORIES_COL_IDX']) to fetch.
+        bot_token: The token of the bot making the request.
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a row
+        with keys matching the input column_keys and values from the sheet.
+        Returns an empty list if no data is found or an error occurs.
+    """
+    logger.info(f"Fetching data for keys {column_keys} from {start_dt} to {end_dt}")
+    results = []
+    try:
+        worksheet = _get_worksheet(sheet_id, worksheet_name)
+        if not worksheet:
+            logger.error("_get_worksheet failed in get_data_for_daterange")
+            return []
+
+        # Get bot-specific config
+        config = get_config()
+        bot_config = config.get_bot_config_by_token(bot_token)
+        if not bot_config:
+            logger.error(f"Could not find config for bot {bot_token[:6]}... in get_data_for_daterange")
+            return []
+        column_map = bot_config['column_map']
+        first_data_row = bot_config['first_data_row']
+        date_col_idx = column_map.get('DATE_COL_IDX')
+        if date_col_idx is None:
+            logger.error(f"Schema Error: DATE_COL_IDX not found for bot {bot_token[:6]}...")
+            return []
+
+        # Resolve column keys to 0-based indices
+        col_indices_to_fetch = {}
+        for key in column_keys:
+            idx = column_map.get(key)
+            if idx is None:
+                logger.error(f"Schema Error: Column key '{key}' not found for bot {bot_token[:6]}...")
+                return [] # Or raise an error / skip the column
+            col_indices_to_fetch[key] = idx
+
+        # Fetch all data (consider optimizing if sheet is huge)
+        # Getting all data at once is often more efficient than multiple reads
+        all_data = worksheet.get_all_values()
+        if len(all_data) <= first_data_row:
+            logger.info("No data rows found in the sheet.")
+            return []
+
+        header_row = all_data[first_data_row -1] # Assuming header is just before data
+        data_rows = all_data[first_data_row:]
+
+        # Iterate through data rows
+        for i, row in enumerate(data_rows):
+            # Check if row has enough columns to contain the date
+            if len(row) <= date_col_idx:
+                continue # Skip rows that are too short
+                
+            row_date_str = row[date_col_idx]
+            if not row_date_str:
+                continue # Skip rows with empty date cell
+                
+            # Try parsing the date string from the sheet
+            try:
+                # Attempt common formats, assuming current year if year is missing
+                current_year = datetime.now().year
+                row_dt = datetime.strptime(f"{row_date_str} {current_year}", '%b %d %Y').date()
+            except ValueError:
+                 try:
+                     # Try parsing with year if it exists
+                     row_dt = datetime.strptime(row_date_str, '%b %d, %Y').date()
+                 except ValueError:
+                     logger.warning(f"Could not parse date '{row_date_str}' in row {first_data_row + i + 1}. Skipping row.")
+                     continue # Skip rows with unparseable dates
+
+            # Check if the row date is within the desired range
+            if start_dt <= row_dt <= end_dt:
+                row_data = {}
+                for key, col_idx in col_indices_to_fetch.items():
+                    if col_idx < len(row):
+                        row_data[key] = row[col_idx]
+                    else:
+                        row_data[key] = None # Assign None if row is shorter than expected column index
+                results.append(row_data)
+                
+        logger.info(f"Found {len(results)} rows within date range {start_dt} to {end_dt}")
+        return results
+
+    except APIError as e:
+        logger.error(f"API Error fetching data range: {e}", exc_info=True)
+        return []
+    except Exception as e:
+        logger.error(f"Unexpected error fetching data range: {e}", exc_info=True)
+        return [] 
