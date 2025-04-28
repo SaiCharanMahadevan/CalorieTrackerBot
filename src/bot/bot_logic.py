@@ -15,7 +15,7 @@ from telegram.ext import (
 # --- Import handlers from new modules ---
 from .direct_commands import (
     start, help_command, log_command_entry, unknown_command, 
-    calories_today_command, weekly_summary_command
+    daily_summary_command, weekly_summary_command
 )
 from .conversation_handlers import (
     # Import states directly
@@ -83,7 +83,7 @@ def create_telegram_application(default_token: str) -> Application:
     application.add_handler(CommandHandler("help", help_command)) # Imported
     
     # --- Register New Summary Commands ---
-    application.add_handler(CommandHandler("calories_today", calories_today_command))
+    application.add_handler(CommandHandler("daily_summary", daily_summary_command))
     application.add_handler(CommandHandler("weekly_summary", weekly_summary_command))
     # -----------------------------------
     

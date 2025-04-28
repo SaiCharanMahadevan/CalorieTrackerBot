@@ -517,16 +517,16 @@ def _calculate_average(values: list) -> float | None:
     return statistics.mean(numeric_values)
 
 # --- New Command Handlers --- 
-async def calories_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Fetches and displays the calorie count for today."""
-    logger.info(f"calories_today_command triggered by user {update.effective_user.id}")
+async def daily_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fetches and displays the calorie, macro, and step count for today."""
+    logger.info(f"daily_summary_command triggered by user {update.effective_user.id}")
     chat_id = update.effective_chat.id
     
     # --- Get Config and Bot --- 
     sheet_config = _get_current_sheet_config(update)
     correct_bot = getattr(update, '_bot', None)
     if not sheet_config or not correct_bot:
-        logger.error("Missing config or bot instance in calories_today_command")
+        logger.error("Missing config or bot instance in daily_summary_command")
         await update.message.reply_text("Internal configuration error. Please try again later.")
         return
     sheet_id = sheet_config['google_sheet_id']
@@ -536,7 +536,15 @@ async def calories_today_command(update: Update, context: ContextTypes.DEFAULT_T
 
     target_date = date.today()
     target_date_str = format_date_for_sheet(target_date)
-    column_keys_to_fetch = ['CALORIES_COL_IDX']
+    # Update columns to fetch
+    column_keys_to_fetch = [
+        'CALORIES_COL_IDX', 
+        'PROTEIN_COL_IDX', 
+        'CARBS_COL_IDX', 
+        'FAT_COL_IDX', 
+        'FIBER_COL_IDX', 
+        'STEPS_COL_IDX'
+    ]
 
     try:
         # Fetch data for today
@@ -553,22 +561,39 @@ async def calories_today_command(update: Update, context: ContextTypes.DEFAULT_T
             message = f"No data found for today ({target_date_str})."
         else:
             # Assuming only one row for today, get the first result
-            calories_raw = data[0].get('CALORIES_COL_IDX')
-            if calories_raw is None or calories_raw == '':
-                message = f"No calorie value logged for today ({target_date_str})."
-            else:
+            today_data = data[0]
+            response_lines = [f"📈 <b>Today's Summary ({target_date_str})</b>\n"]
+
+            # Helper to format each metric line
+            def format_metric(key: str, label: str, unit: str = '', precision: int = 0) -> str:
+                raw_value = today_data.get(key)
+                if raw_value is None or str(raw_value).strip() == '':
+                    return f"{label}: N/A"
                 try:
-                    calories_value = float(str(calories_raw).replace(',', ''))
-                    message = f"🔥 Calories logged for today ({target_date_str}): <b>{calories_value:.0f}</b>"
+                    # Convert to float, removing commas
+                    value = float(str(raw_value).replace(',', ''))
+                    return f"{label}: <b>{value:.{precision}f}{unit}</b>"
                 except (ValueError, TypeError):
-                    logger.warning(f"Could not convert calorie value '{calories_raw}' to float for today.")
-                    message = f"Found a non-numeric calorie value ('{calories_raw}') for today ({target_date_str})."
+                    logger.warning(f"Could not convert {label} value '{raw_value}' to float for today.")
+                    # Optionally show the raw non-numeric value, escaped
+                    escaped_raw = html.escape(str(raw_value))
+                    return f"{label}: Invalid ({escaped_raw})"
+
+            # Add lines for each metric
+            response_lines.append(format_metric('CALORIES_COL_IDX', "🔥 Calories"))
+            response_lines.append(format_metric('PROTEIN_COL_IDX', "💪 Protein", unit='g'))
+            response_lines.append(format_metric('CARBS_COL_IDX', "🍞 Carbs", unit='g'))
+            response_lines.append(format_metric('FAT_COL_IDX', "🥑 Fat", unit='g'))
+            response_lines.append(format_metric('FIBER_COL_IDX', "🥦 Fiber", unit='g'))
+            response_lines.append(format_metric('STEPS_COL_IDX', "🚶 Steps"))
+
+            message = "\n".join(response_lines)
 
         await update.message.reply_html(message) # Use HTML for potential bolding
 
     except Exception as e:
         logger.error(f"Error in calories_today_command: {e}", exc_info=True)
-        await update.message.reply_text("Sorry, an error occurred while fetching today's calories.")
+        await update.message.reply_text("Sorry, an error occurred while fetching today's summary.")
 
 async def weekly_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Fetches and displays the weekly summary (averages)."""
