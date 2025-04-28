@@ -145,6 +145,8 @@ Talk to any of your configured bots on Telegram:
 *   `/help`: See command usage details.
 *   `/log [date] [metric] [value]`: Log data (see `/help` for examples). Note: Does not support audio logging.
 *   `/newlog`: Start a guided conversation to log multiple items. Supports **text, photo, and voice/audio input** for meals.
+*   `/daily_summary`: Show today's calories, macros (Protein, Carbs, Fat, Fiber), and steps.
+*   `/weekly_summary`: Show average sleep, weight, steps, and calories for the current week (starting from the most recent Sunday).
 *   `/cancel`: Cancel the current conversation if it's stuck or you want to start over.
 
 Data will be logged to the Google Sheet associated with the specific bot you are interacting with.

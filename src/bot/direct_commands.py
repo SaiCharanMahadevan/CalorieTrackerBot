@@ -52,6 +52,8 @@ async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         f" `/help`: Show this help message.\n"
         f" `/log [metric] [value]`: Log data in a single line (see examples below).\n"
         f" `/newlog`: Start a guided conversation to log multiple items for a date (Recommended for meals).\n"
+        f" `/daily_summary`: Show today's calories, macros (P/C/F/Fi), and steps.\n"
+        f" `/weekly_summary`: Show average sleep, weight, steps, and calories for the current week (Sun-Today).\n"
         f" `/cancel`: Cancel the current logging operation (e.g., during `/newlog`).\n\n"
         f"<b>Using /log:</b> ⌨️\n"
         f" `/log [metric_type] [value_or_description]`\n"
