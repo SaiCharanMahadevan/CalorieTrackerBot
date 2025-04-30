@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 
 # --- Import handlers from new modules ---
-from .direct_commands import (
+from .commands import (
     start, help_command, log_command_entry, unknown_command, 
     daily_summary_command, weekly_summary_command
 )
@@ -76,29 +76,29 @@ def create_telegram_application(default_token: str) -> Application:
     application.add_handler(conv_handler)
 
     # --- Use IMPORTED handlers for direct commands ---
-    application.add_handler(CommandHandler("start", start)) # Imported
-    application.add_handler(CommandHandler("help", help_command)) # Imported
+    application.add_handler(CommandHandler("start", start)) # Imported from .commands
+    application.add_handler(CommandHandler("help", help_command)) # Imported from .commands
     
     # --- Register New Summary Commands ---
-    application.add_handler(CommandHandler("daily_summary", daily_summary_command))
-    application.add_handler(CommandHandler("weekly_summary", weekly_summary_command))
+    application.add_handler(CommandHandler("daily_summary", daily_summary_command)) # Imported from .commands
+    application.add_handler(CommandHandler("weekly_summary", weekly_summary_command)) # Imported from .commands
     # -----------------------------------
     
     # --- Handlers for /log command --- 
     # Handler for /log in standard text messages
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r'^/log(?:@\w+)?(?:\s|$)'), 
-        log_command_entry
+        log_command_entry # Imported from .commands
     ))
     # Handler for any photo (will check for /log meal caption inside)
     application.add_handler(MessageHandler(
         filters.PHOTO, 
-        log_command_entry
+        log_command_entry # Imported from .commands
     ))
     # ----------------------------------
 
     # --- Use IMPORTED handler for unknown commands ---
-    application.add_handler(MessageHandler(filters.COMMAND, unknown_command)) # Imported
+    application.add_handler(MessageHandler(filters.COMMAND, unknown_command)) # Imported from .commands
 
     # Add error handler (now imported)
     application.add_error_handler(error_handler) # <<< Uses imported handler
