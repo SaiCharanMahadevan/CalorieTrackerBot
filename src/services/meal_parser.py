@@ -5,6 +5,7 @@ import json
 import os
 from typing import List, Dict, Any
 from src.services.ai_models import AIModelManager
+import google.generativeai as genai # Import genai
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -39,8 +40,15 @@ def parse_meal_text_with_gemini(meal_text: str) -> List[Dict[str, Any]]:
     """
     logger.info(f"Sending meal description to Gemini for parsing: {meal_text}")
     try:
-        # Add timeout to prevent hanging
-        response = model.generate_content(prompt, request_options={"timeout": 30})  # 30 second timeout
+        # Define generation config for consistency
+        generation_config = genai.types.GenerationConfig(temperature=0.2)
+        
+        # Add timeout and generation config
+        response = model.generate_content(
+            prompt, 
+            generation_config=generation_config, 
+            request_options={"timeout": 30}
+        )
         # Clean up potential markdown code fences and surrounding text/whitespace
         cleaned_text = response.text.strip().lstrip('```json').rstrip('```').strip()
         logger.debug(f"Raw Gemini response: {response.text}")
@@ -113,10 +121,14 @@ def parse_meal_image_with_gemini(image_data: bytes) -> List[Dict[str, Any]]:
 
         Example Output: [{"item": "chicken breast", "quantity_g": 150.0}, {"item": "broccoli", "quantity_g": 100.0}, {"item": "rice", "quantity_g": 180.0}]
         """
-        
-        # Generate content with the image
+        # Define generation config for consistency
+        generation_config = genai.types.GenerationConfig(temperature=0.2)
+
+        # Generate content with the image, prompt, and config
         response = model.generate_content(
-            [prompt, {"mime_type": "image/jpeg", "data": image_data}]
+            [prompt, {"mime_type": "image/jpeg", "data": image_data}],
+            generation_config=generation_config,
+            request_options={"timeout": 30} # Add timeout here too if needed
         )
         
         # Clean up potential markdown code fences and surrounding text/whitespace
@@ -174,4 +186,4 @@ if __name__ == '__main__':
     #         print(f"  - {item['item']}: {item['quantity_g']}g")
     # else:
     #     print("Meal parsing failed.")
-    pass # Avoid running example without key setup 
+    pass # Avoid running example without key setup

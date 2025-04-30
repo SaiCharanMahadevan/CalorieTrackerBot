@@ -5,6 +5,7 @@ import logging
 import os
 import json
 import re # For parsing Gemini's ID choice
+from functools import lru_cache # Import lru_cache
 from typing import List, Dict, Any
 from src.config import config
 from src.services.ai_models import AIModelManager
@@ -127,8 +128,10 @@ Chosen FDC ID:"""
         logger.warning(f"Defaulting to first USDA candidate due to Gemini error: {candidates[0]['fdcId']}")
         return candidates[0]['fdcId']
 
+@lru_cache(maxsize=128) # Add LRU cache decorator
 def _get_usda_nutrition_details(fdc_id: int, quantity_g: float) -> dict | None:
     """Fetches and calculates nutritional details for a specific FDC ID and quantity."""
+    logger.info(f"Fetching nutrition details for FDC ID {fdc_id} and quantity {quantity_g}g")
     usda_api_key = _get_api_key("USDA_API_KEY", config.USDA_API_KEY)
     if not usda_api_key or usda_api_key == 'YOUR_USDA_API_KEY_PLACEHOLDER':
         logger.warning("USDA API Key not configured. Skipping USDA details fetch.")
@@ -210,6 +213,7 @@ def _get_usda_nutrition_details(fdc_id: int, quantity_g: float) -> dict | None:
         logger.error(f"Unexpected error processing USDA details for FDC ID {fdc_id}: {e}")
         return None
 
+@lru_cache(maxsize=256) # Add LRU cache decorator
 def _estimate_nutrition_with_gemini(item_name: str, quantity_g: float) -> dict | None:
     """Uses Gemini to estimate nutrition as a fallback."""
     # Get the nutrition model instance
@@ -363,4 +367,4 @@ if __name__ == '__main__':
     #         print(f"  {key.capitalize()}: {value:.1f}") # Adjust formatting as needed
     # else:
     #     print("\nFailed to get nutrition for the meal.")
-    pass # Avoid running example without key setup 
+    pass # Avoid running example without key setup
