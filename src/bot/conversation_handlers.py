@@ -1,4 +1,5 @@
 import logging
+import html
 from typing import Optional, Dict, Any
 from datetime import date
 import dateparser
@@ -68,10 +69,11 @@ def _format_items_for_editing(parsed_items: list) -> str:
         return "No items found."
     items_text_list = []
     for idx, item in enumerate(parsed_items):
-        # Correct escaping for MarkdownV2
-        item_name_escaped = escape_markdown(item['item'], version=2)
-        quantity_escaped = escape_markdown(f"{item['quantity_g']:.0f}g", version=2)
-        items_text_list.append(f"{idx + 1}\. {item_name_escaped} \({quantity_escaped}\)")
+        # Escape item name for HTML safety
+        item_name_safe = html.escape(item['item'])
+        quantity = f"{item['quantity_g']:.0f}g"
+        # Format as plain text suitable for HTML embedding
+        items_text_list.append(f"{idx + 1}. {item_name_safe} ({quantity})")
     return "\n".join(items_text_list)
 
 # --- /newlog Conversation Handlers ---
@@ -425,21 +427,32 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
         context.user_data['parsed_items'] = parsed_items
         logger.info(f"Successfully parsed items for {sheet_date_str}. Stored in user_data. Transitioning to AWAIT_ITEM_QUANTITY_EDIT.")
 
-        items_display = _format_items_for_editing(parsed_items)
-        prompt_text = (
-            f"Okay, here are the items I found for {escape_markdown(sheet_date_str, version=2)}:\n\n"
+        # Escape sheet_date_str for HTML
+        sheet_date_str_safe = html.escape(sheet_date_str)
+
+        items_display = _format_items_for_editing(parsed_items) # Uses updated function
+        # Construct prompt using HTML tags
+        prompt_text_html = (
+            f"Okay, here are the items I found for <b>{sheet_date_str_safe}</b>:\n\n"
             f"{items_display}\n\n"
-            f"You can now adjust the quantities. Reply with:\n"
-            f"item_number new_quantity_g (e.g., 1 180)\n\n"
-            f"Or reply with **done** if the list is correct."
+            f"You can now adjust the quantities \n"
+            f"Reply with: <code>item_number new_quantity_g</code>\n"
+            f"(for example, <code>1 180</code>)\n\n"
+            f"Or press Done below if the list is correct"
         )
 
-        # Escape the prompt text for MarkdownV2
-        escaped_prompt_text = escape_markdown(prompt_text, version=2)
+        # Create Done button (remains the same)
+        keyboard = [[
+            InlineKeyboardButton("✅ Done", switch_inline_query_current_chat='done')
+        ]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
+        # No need for escape_markdown now
+        # Send with HTML parse mode
         await processing_message.edit_text(
-            text=escaped_prompt_text, # Use escaped text
-            parse_mode=ParseMode.MARKDOWN_V2
+            text=prompt_text_html,
+            parse_mode=ParseMode.HTML, # <-- Change parse mode
+            reply_markup=reply_markup
         )
         return AWAIT_ITEM_QUANTITY_EDIT # <-- Transition to new state
 
@@ -473,7 +486,7 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
         return ConversationHandler.END
 
     sheet_date_str = format_date_for_sheet(target_date)
-    sheet_date_str_escaped = escape_markdown(sheet_date_str, version=2)
+    sheet_date_str_escaped = html.escape(sheet_date_str)
 
     if user_input == 'done':
         logger.info(f"User finished editing quantities for {sheet_date_str}. Proceeding to nutrition lookup.")
@@ -488,23 +501,28 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
             # For now, just inform and stay. User can try 'done' again or restart.
             # Re-display items might be good here too.
             items_display = _format_items_for_editing(parsed_items)
-            prompt_text = (
-                f"Failed to get nutrition\. Current items:\n\n"
+            # Use HTML for this prompt too
+            prompt_text_html = (
+                f"Failed to get nutrition. Current items:\n\n"
                 f"{items_display}\n\n"
-                f"You can try editing again or type `done` to retry nutrition lookup\."
+                f"You can try editing again or type <code>done</code> to retry nutrition lookup."
             )
-            await update.message.reply_text(text=prompt_text, parse_mode=ParseMode.MARKDOWN_V2)
+            await update.message.reply_text(text=prompt_text_html, parse_mode=ParseMode.HTML) # <-- HTML
             return AWAIT_ITEM_QUANTITY_EDIT
 
         context.user_data['nutrition_info'] = nutrition_info
         logger.info(f"Successfully calculated nutrition for edited items: {nutrition_info}")
 
         # --- Construct Confirmation Text (using potentially edited items) ---
-        final_items_display = "\n".join([f"- {i['item']} ({i['quantity_g']:.0f}g)" for i in parsed_items])
-        confirmation_text = (
-            f"Okay, here's the final meal log for {sheet_date_str_escaped}:\n\n"
-            f"**Items**:\n{final_items_display}\n\n"
-            f"**Estimated Nutrition**:\n"
+        # Escape item names for HTML in the final list display
+        final_items_display_list = [f"- {html.escape(i['item'])} ({i['quantity_g']:.0f}g)" for i in parsed_items]
+        final_items_display = "\n".join(final_items_display_list)
+
+        # Use HTML tags in confirmation text
+        confirmation_text_html = (
+            f"Okay, here's the final meal log for <b>{sheet_date_str_escaped}</b>:\n\n"
+            f"<b>Items</b>:\n{final_items_display}\n\n"
+            f"<b>Estimated Nutrition</b>:\n"
             f"- Calories: {nutrition_info.get('calories', 0):.0f}\n"
             f"- Protein: {int(nutrition_info.get('protein', 0))}g\n"
             f"- Carbs: {int(nutrition_info.get('carbs', 0))}g\n"
@@ -512,10 +530,9 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
             f"- Fiber: {int(nutrition_info.get('fiber', 0))}g\n\n"
             f"What would you like to do?"
         )
-        # --- Escape the text for MarkdownV2 --- #
-        escaped_confirmation_text = escape_markdown(confirmation_text, version=2)
+        # No need for escape_markdown
 
-        # --- Define Buttons --- #
+        # Define Buttons (remain the same)
         keyboard = [
             [
                 InlineKeyboardButton("✅ Add Meal", callback_data='confirm_meal_yes'),
@@ -527,9 +544,9 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
 
         # --- Send Confirmation Message --- #
         await processing_message.edit_text(
-            text=escaped_confirmation_text, # Use escaped text
+            text=confirmation_text_html, # Use HTML text
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN_V2
+            parse_mode=ParseMode.HTML # <-- Change parse mode
         )
         logger.info("Transitioning to AWAIT_MEAL_CONFIRMATION")
         return AWAIT_MEAL_CONFIRMATION
@@ -552,7 +569,7 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
             new_quantity = float(quantity_str_cleaned)
 
             if new_quantity < 0:
-                raise ValueError("Quantity cannot be negative\.")
+                raise ValueError("Quantity cannot be negative")
 
             # --- Update the item ---
             original_item = parsed_items[item_index]['item']
@@ -562,29 +579,46 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
             logger.info(f"Updated item {item_index + 1} ('{original_item}') quantity from {original_qty:.0f}g to {new_quantity:.0f}g")
 
             # --- Re-display the list ---
-            items_display = _format_items_for_editing(parsed_items)
-            prompt_text = (
-                f"Updated item {item_index + 1}\. from the Current list:\n\n"
+            items_display = _format_items_for_editing(parsed_items) # Uses updated function
+            # Use HTML tags
+            prompt_text_html = (
+                f"Updated item <b>{item_index + 1}</b> from the current list:\n\n"
                 f"{items_display}\n\n"
-                f"Edit another item \(`item_number new_quantity_g`\) or type `done`\."
+                f"Edit another item <code>item_number new_quantity_g</code> or press Done below"
             )
+            # Create Done button again for consistency
+            keyboard = [[
+                InlineKeyboardButton("✅ Done", switch_inline_query_current_chat='done')
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # No need for escape_markdown
+            # Send with HTML parse mode
             await update.message.reply_text(
-                text=prompt_text,
-                parse_mode=ParseMode.MARKDOWN_V2
+                text=prompt_text_html,
+                parse_mode=ParseMode.HTML, # <-- Change parse mode
+                reply_markup=reply_markup
             )
             return AWAIT_ITEM_QUANTITY_EDIT # Remain in this state
 
         except (ValueError, IndexError) as e:
             logger.warning(f"Invalid edit input '{user_input}': {e}")
-            error_msg_escaped = escape_markdown(str(e), version=2)
+            # Escape error message for HTML
+            error_msg_safe = html.escape(str(e))
+            # Use HTML tags in error response
+            error_text_html = (
+                f"Invalid format: {error_msg_safe}\n"
+                f"Please use <code>item_number new_quantity_g</code> (e.g., <code>1 180</code>) or <code>done</code>."
+            )
             await update.message.reply_text(
-                f"Invalid format: {error_msg_escaped}\nPlease use `item_number new_quantity_g` \(e\.g\., `1 180`\) or `done`\.",
-                parse_mode=ParseMode.MARKDOWN_V2
+                error_text_html,
+                parse_mode=ParseMode.HTML # <-- Change parse mode
             )
             return AWAIT_ITEM_QUANTITY_EDIT # Remain in this state
         except Exception as e:
              logger.error(f"Unexpected error processing edit command '{user_input}': {e}", exc_info=True)
-             await update.message.reply_text("An unexpected error occurred while processing your edit\. Please try again or type /cancel\.")
+             # Use HTML tags and escape error message
+             await update.message.reply_text(f"An unexpected error occurred while processing your edit: <i>{html.escape(str(e))}</i>. Please try again or type /cancel.", parse_mode=ParseMode.HTML) # <-- HTML
              return AWAIT_ITEM_QUANTITY_EDIT # Remain in state, allow retry or cancel
 
 async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -631,21 +665,20 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
             f" Fi: {nutrition_info.get('fiber', 0):.1f}\n\n"
         )
 
-        prompt_text = (
+        # Use HTML tags
+        prompt_text_html = (
             f"{current_vals_text}"
-            f"**(Note: Calories are calculated automatically from macros)**\n\n"
-            f"If these totals seem incorrect, please send the **4 corrected values** in this exact order (space\\-separated):\n"
-            f"`Protein` `Carbs` `Fat` `Fiber`\n\n"
-            f"Example: `35 40 20 8`\n"
+            f"<b>(Note: Calories are calculated automatically from macros)</b>\n\n"
+            f"If these totals seem incorrect, please send the <b>4 corrected values</b> in this exact order (space-separated):\n"
+            f"<code>Protein</code> <code>Carbs</code> <code>Fat</code> <code>Fiber</code>\n\n"
+            f"Example: <code>35 40 20 8</code>\n"
             f"(This means 35g Protein, 40g Carbs, 20g Fat, 8g Fiber)"
         )
 
-        # Escape the prompt text for MarkdownV2
-        escaped_prompt_text = escape_markdown(prompt_text, version=2)
-
+        # No need for escape_markdown
         await query.edit_message_text(
-            escaped_prompt_text, # Use escaped text
-            parse_mode=ParseMode.MARKDOWN_V2
+            prompt_text_html,
+            parse_mode=ParseMode.HTML # <-- Change parse mode
         )
         return AWAIT_MACRO_EDIT # Transition to the existing macro edit handler
 
