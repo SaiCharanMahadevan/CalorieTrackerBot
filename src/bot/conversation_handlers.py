@@ -431,28 +431,20 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
         sheet_date_str_safe = html.escape(sheet_date_str)
 
         items_display = _format_items_for_editing(parsed_items) # Uses updated function
-        # Construct prompt using HTML tags
+        # Construct prompt using HTML tags, enhancing readability
         prompt_text_html = (
             f"Okay, here are the items I found for <b>{sheet_date_str_safe}</b>:\n\n"
             f"{items_display}\n\n"
-            f"You can now adjust the quantities \n"
+            f"You can now adjust the quantities.\n"
             f"Reply with: <code>item_number new_quantity_g</code>\n"
-            f"(for example, <code>1 180</code>)\n\n"
-            f"Or press Done below if the list is correct"
+            f"<i>(Example: <code>1 180</code>)</i>\n\n" # Italicize example
+            f"Or type <b>done</b> if the list is correct."
         )
 
-        # Create Done button (remains the same)
-        keyboard = [[
-            InlineKeyboardButton("✅ Done", switch_inline_query_current_chat='done')
-        ]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # No need for escape_markdown now
-        # Send with HTML parse mode
+        # Send with HTML parse mode, removing reply_markup
         await processing_message.edit_text(
             text=prompt_text_html,
-            parse_mode=ParseMode.HTML, # <-- Change parse mode
-            reply_markup=reply_markup
+            parse_mode=ParseMode.HTML # <-- Change parse mode
         )
         return AWAIT_ITEM_QUANTITY_EDIT # <-- Transition to new state
 
@@ -501,7 +493,7 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
             # For now, just inform and stay. User can try 'done' again or restart.
             # Re-display items might be good here too.
             items_display = _format_items_for_editing(parsed_items)
-            # Use HTML for this prompt too
+            # Use HTML for this prompt too, enhancing readability
             prompt_text_html = (
                 f"Failed to get nutrition. Current items:\n\n"
                 f"{items_display}\n\n"
@@ -580,24 +572,18 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
 
             # --- Re-display the list ---
             items_display = _format_items_for_editing(parsed_items) # Uses updated function
-            # Use HTML tags
+            # Use HTML tags, enhancing readability
             prompt_text_html = (
                 f"Updated item <b>{item_index + 1}</b> from the current list:\n\n"
                 f"{items_display}\n\n"
-                f"Edit another item <code>item_number new_quantity_g</code> or press Done below"
+                # Clarify action vs format, instruct to type done
+                f"Edit another item using <code>item_number new_quantity_g</code>, or type <b>done</b>."
             )
-            # Create Done button again for consistency
-            keyboard = [[
-                InlineKeyboardButton("✅ Done", switch_inline_query_current_chat='done')
-            ]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
 
-            # No need for escape_markdown
-            # Send with HTML parse mode
+            # Send with HTML parse mode, removing reply_markup
             await update.message.reply_text(
                 text=prompt_text_html,
-                parse_mode=ParseMode.HTML, # <-- Change parse mode
-                reply_markup=reply_markup
+                parse_mode=ParseMode.HTML # <-- Change parse mode
             )
             return AWAIT_ITEM_QUANTITY_EDIT # Remain in this state
 
@@ -605,10 +591,11 @@ async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFA
             logger.warning(f"Invalid edit input '{user_input}': {e}")
             # Escape error message for HTML
             error_msg_safe = html.escape(str(e))
-            # Use HTML tags in error response
+            # Use HTML tags in error response, enhancing readability
             error_text_html = (
                 f"Invalid format: {error_msg_safe}\n"
-                f"Please use <code>item_number new_quantity_g</code> (e.g., <code>1 180</code>) or <code>done</code>."
+                f"Please use the format <code>item_number new_quantity_g</code>\n"
+                f"<i>(Example: <code>1 180</code>)</i> or type <code>done</code>."
             )
             await update.message.reply_text(
                 error_text_html,
@@ -665,14 +652,14 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
             f" Fi: {nutrition_info.get('fiber', 0):.1f}\n\n"
         )
 
-        # Use HTML tags
+        # Use HTML tags, enhancing readability
         prompt_text_html = (
             f"{current_vals_text}"
-            f"<b>(Note: Calories are calculated automatically from macros)</b>\n\n"
-            f"If these totals seem incorrect, please send the <b>4 corrected values</b> in this exact order (space-separated):\n"
-            f"<code>Protein</code> <code>Carbs</code> <code>Fat</code> <code>Fiber</code>\n\n"
-            f"Example: <code>35 40 20 8</code>\n"
-            f"(This means 35g Protein, 40g Carbs, 20g Fat, 8g Fiber)"
+            f"<b>Note: Calories are calculated automatically from macros</b>\n\n"
+            # Clarify expected input
+            f"If these totals seem incorrect, please send the <b>4 corrected values</b> (Protein Carbs Fat Fiber), separated by spaces.\n\n"
+            f"<i>Example: <code>35 40 20 8</code></i>"
+            # Removed redundant detail line
         )
 
         # No need for escape_markdown
@@ -813,9 +800,17 @@ async def received_macro_edit(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     except ValueError as e:
         logger.warning(f"received_macro_edit: Invalid input '{user_text}'. Error: {e}")
+        # Escape error message for HTML
+        error_msg_safe = html.escape(str(e))
+        # Use HTML tags in error response, enhancing readability
+        error_text_html = (
+            f"Invalid input. Please send <b>4 numbers</b> (Protein Carbs Fat Fiber) separated by spaces.\n"
+            f"<i>Example: <code>35 40 20 8</code></i>\n"
+            f"Error: {error_msg_safe}"
+        )
         await update.message.reply_text(
-            f"Invalid input. Please send 4 numbers separated by spaces: `P C F Fi` (e.g., `35 40 20 8`). Error: {e}",
-            parse_mode=ParseMode.MARKDOWN_V2
+            error_text_html,
+            parse_mode=ParseMode.HTML # <-- Change parse mode
         )
         return AWAIT_MACRO_EDIT # Remain in this state to allow retry
     # -----------------------------------
