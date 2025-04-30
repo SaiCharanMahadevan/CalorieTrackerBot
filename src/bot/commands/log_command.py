@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 # Project imports
 from src.config.config import LOGGING_CHOICES_MAP
-from src.services.sheets_handler import update_metrics, add_nutrition, format_date_for_sheet
+from src.services.sheets import update_metrics, add_nutrition, format_date_for_sheet
 from src.services.meal_parser import parse_meal_text_with_gemini, parse_meal_image_with_gemini
 from src.services.nutrition_api import get_nutrition_for_items
 # Need the helper to get config for the current bot
@@ -219,7 +219,7 @@ async def _handle_photo_log(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         target_date = date.today() # Default to today for direct photo log
         sheet_date_str = format_date_for_sheet(target_date)
         logger.info("_handle_photo_log: Calling add_nutrition...")
-        success = add_nutrition(
+        success = await add_nutrition(
             sheet_id=sheet_id,
             worksheet_name=worksheet_name,
             target_dt=target_date,

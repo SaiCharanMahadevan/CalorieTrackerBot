@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
 
 # Project imports
-from src.services.sheets_handler import add_nutrition, format_date_for_sheet
+from src.services.sheets import add_nutrition, format_date_for_sheet
 from src.bot.helpers import _get_current_sheet_config # Main helpers
 
 # Local imports

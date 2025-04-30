@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 # Project imports
-from src.services.sheets_handler import format_date_for_sheet
+from src.services.sheets import format_date_for_sheet
 
 # Local imports
 from .states import SELECTING_ACTION, AWAITING_METRIC_CHOICE

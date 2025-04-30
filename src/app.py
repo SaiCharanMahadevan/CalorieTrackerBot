@@ -7,7 +7,7 @@ from telegram import Update, Bot
 from telegram.ext import Application
 
 # --- Import from utils ---
-from src.utils import sanitize_token
+from src.utils.sanitize_token import sanitize_token
 
 from src.config.config_loader import get_config, AppConfig
 from src.bot.bot_logic import create_telegram_application

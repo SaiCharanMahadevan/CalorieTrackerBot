@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 # Project imports
 from src.config.config import LOGGING_CHOICES_MAP
-from src.services.sheets_handler import update_metrics, format_date_for_sheet
+from src.services.sheets import update_metrics, format_date_for_sheet
 # Need the helper to get config for the current bot
 from src.bot.helpers import _get_current_sheet_config # Uses the main helpers
 

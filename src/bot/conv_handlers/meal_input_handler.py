@@ -5,10 +5,9 @@ from telegram.ext import ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
 
 # Project imports
-from src.services.sheets_handler import format_date_for_sheet
+from src.services.sheets import format_date_for_sheet
 from src.services.meal_parser import parse_meal_text_with_gemini, parse_meal_image_with_gemini
 from src.services.audio_processor import transcribe_audio
-from src.bot.helpers import _get_current_sheet_config # Main helpers
 
 # Local imports (within conv_handlers)
 from .states import AWAIT_MEAL_INPUT, AWAIT_ITEM_QUANTITY_EDIT

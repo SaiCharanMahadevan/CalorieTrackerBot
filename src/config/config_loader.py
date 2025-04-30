@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 import threading # For singleton lock
 
 # --- Import from utils ---
-from src.utils import sanitize_token
+from src.utils.sanitize_token import sanitize_token
 
 # Import the schema maps and defaults
 from .config import TEMPLATE_SCHEMA_MAP, LEGACY_SCHEMA_MAP, DEFAULT_FIRST_DATA_ROW
