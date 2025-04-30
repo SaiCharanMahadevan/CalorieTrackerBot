@@ -34,4 +34,18 @@ def _format_items_for_editing(parsed_items: list) -> str:
         quantity = f"{item['quantity_g']:.0f}g"
         # Format as plain text suitable for HTML embedding
         items_text_list.append(f"{idx + 1}. {item_name_safe} ({quantity})")
-    return "\n".join(items_text_list) 
+    return "\n".join(items_text_list)
+
+# --- Helper for Standard HTML Error Replies ---
+def format_error_html(error_message: str, suggestion: str = "Please try again or type /cancel.") -> str:
+    """Formats a standard error reply using HTML."""
+    # Only escape the error message, assume suggestion is safe or already contains HTML
+    return f"❌ Error: <i>{html.escape(error_message)}</i>\n{suggestion}"
+
+def format_error_edit_html(error_message: str, command_format: str, example: str) -> str:
+    """Formats an error reply specifically for edit commands using HTML."""
+    return (
+        f"Invalid format: <i>{html.escape(error_message)}</i>\n"
+        f"Please use the format <code>{command_format}</code>\n"
+        f"<i>(Example: <code>{example}</code>)</i> or type <code>done</code>."
+    ) 

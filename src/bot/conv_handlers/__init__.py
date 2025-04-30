@@ -12,8 +12,10 @@ from .states import (
     CONVERSATION_STATES # Also export the dict if needed elsewhere
 )
 
-# Import handlers
+# Import handlers from new files
 from .start_handlers import new_log_start, received_date
 from .metric_handlers import received_metric_choice, received_metric_value
-from .meal_handlers import received_meal_description, received_item_quantity_edit, received_meal_confirmation, received_macro_edit
+from .meal_input_handler import received_meal_description
+from .item_edit_handler import received_item_quantity_edit
+from .meal_confirmation_handler import received_meal_confirmation, received_macro_edit
 from .flow_handlers import ask_log_more, ask_log_more_choice, cancel_conversation 

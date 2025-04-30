@@ -10,8 +10,7 @@ from src.bot.helpers import _get_current_sheet_config # Uses the main helpers
 
 # Local imports
 from .states import (
-    AWAITING_METRIC_CHOICE, AWAIT_MEAL_INPUT, AWAIT_METRIC_INPUT,
-    ASK_LOG_MORE
+    AWAIT_MEAL_INPUT, AWAIT_METRIC_INPUT, ASK_LOG_MORE
 )
 from .flow_handlers import ask_log_more # Relative import needs careful handling
 
@@ -150,7 +149,6 @@ async def received_metric_value(update: Update, context: ContextTypes.DEFAULT_TY
     metric_info = LOGGING_CHOICES_MAP[metric_type]
     input_type = metric_info['type']
     metric_keys = metric_info['metrics'] # Get standardized keys
-    num_values_expected = metric_info['num_values']
     sheet_date_str = format_date_for_sheet(target_date)
     logger.info(f"Input type: {input_type}")
 
