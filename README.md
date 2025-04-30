@@ -220,6 +220,33 @@ This script handles:
 *   Stop: Press `Ctrl+C` in the terminal where the script is running.
 *   Ngrok UI: `http://localhost:4040`
 
+## Running Tests
+
+Unit tests are located in the `tests/` directory. To run them locally:
+
+1.  **Install Dependencies:** Ensure you have installed the project dependencies, preferably in a virtual environment:
+    ```bash
+    # If not already done for local development
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+2.  **Run All Tests:** Use the `unittest` discovery mechanism from the project root directory:
+    ```bash
+    python -m unittest discover tests
+    ```
+
+3.  **Run Tests for a Specific Module:** To run tests only for a specific part (e.g., the command handlers):
+    ```bash
+    python -m unittest discover tests/bot/commands
+    ```
+
+4.  **Run a Specific Test File:**
+    ```bash
+    python -m unittest tests/bot/commands/test_log_command.py
+    ```
+
 ## File Structure
 
 ```
