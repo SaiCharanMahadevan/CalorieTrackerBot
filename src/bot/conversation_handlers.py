@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
     AWAIT_METRIC_INPUT,
     ASK_LOG_MORE,
     AWAIT_MACRO_EDIT,
-) = range(7)
+    AWAIT_ITEM_QUANTITY_EDIT, # <-- Add new state
+) = range(8) # <-- Update range
 
 # Export states for use in main handler definition
 CONVERSATION_STATES = {
@@ -39,6 +40,7 @@ CONVERSATION_STATES = {
     AWAIT_METRIC_INPUT,
     ASK_LOG_MORE,
     AWAIT_MACRO_EDIT,
+    AWAIT_ITEM_QUANTITY_EDIT, # <-- Add new state
 }
 
 # --- Helper Function for Metric Buttons ---
@@ -58,6 +60,19 @@ def _get_metric_choice_keyboard():
          keyboard.append(metric_buttons[i:i + buttons_per_row])
     keyboard.append([InlineKeyboardButton("Finish Session", callback_data='cancel_log')])
     return InlineKeyboardMarkup(keyboard)
+
+# --- Helper function to display items for editing ---
+def _format_items_for_editing(parsed_items: list) -> str:
+    """Formats the list of parsed items for display during editing."""
+    if not parsed_items:
+        return "No items found."
+    items_text_list = []
+    for idx, item in enumerate(parsed_items):
+        # Correct escaping for MarkdownV2
+        item_name_escaped = escape_markdown(item['item'], version=2)
+        quantity_escaped = escape_markdown(f"{item['quantity_g']:.0f}g", version=2)
+        items_text_list.append(f"{idx + 1}\. {item_name_escaped} \({quantity_escaped}\)")
+    return "\n".join(items_text_list)
 
 # --- /newlog Conversation Handlers ---
 async def new_log_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -326,7 +341,7 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text("Error: Missing date context. Please start over with /newlog")
         return ConversationHandler.END
     sheet_date_str = format_date_for_sheet(target_date)
-    
+
     # --- Get correct bot instance --- 
     correct_bot = getattr(update, '_bot', None)
     if not correct_bot:
@@ -334,8 +349,7 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
          await update.message.reply_text("Internal error: Bot context missing.")
          return ConversationHandler.END
     bot_token_snippet = correct_bot.token[:6] + "..." if correct_bot.token else "Unknown"
-    # --------------------------------
-    
+
     processing_message = await correct_bot.send_message(
         chat_id,
         f"Processing your input for {sheet_date_str}... hang tight!"
@@ -394,7 +408,7 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
             await processing_message.edit_text("Please send meal description text, a photo, or a voice message.")
             return AWAIT_MEAL_INPUT
 
-        # --- Common Logic: Check Parsing, Lookup Nutrition, Show Confirmation --- #
+        # --- Check Parsing Result --- #
         if not parsed_items:
             error_message = "Sorry, I couldn't understand the food items" 
             if transcript:
@@ -407,23 +421,90 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
             await processing_message.edit_text(error_message)
             return AWAIT_MEAL_INPUT # Allow retry
 
-        parsed_items_str = "\n".join([f"- {i['item']} ({i['quantity_g']:.0f}g)" for i in parsed_items])
-        message_text = f"Parsed items from your input:\n{parsed_items_str}\n\nLooking up nutrition..."
-        await processing_message.edit_text(message_text)
+        # --- Store Parsed Items and Transition to Editing State --- #
+        context.user_data['parsed_items'] = parsed_items
+        logger.info(f"Successfully parsed items for {sheet_date_str}. Stored in user_data. Transitioning to AWAIT_ITEM_QUANTITY_EDIT.")
+
+        items_display = _format_items_for_editing(parsed_items)
+        prompt_text = (
+            f"Okay, here are the items I found for {escape_markdown(sheet_date_str, version=2)}:\n\n"
+            f"{items_display}\n\n"
+            f"You can now adjust the quantities. Reply with:\n"
+            f"item_number new_quantity_g (e.g., 1 180)\n\n"
+            f"Or reply with **done** if the list is correct."
+        )
+
+        # Escape the prompt text for MarkdownV2
+        escaped_prompt_text = escape_markdown(prompt_text, version=2)
+
+        await processing_message.edit_text(
+            text=escaped_prompt_text, # Use escaped text
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return AWAIT_ITEM_QUANTITY_EDIT # <-- Transition to new state
+
+    except Exception as e:
+        logger.error(f"Error in received_meal_description: {e}", exc_info=True)
+        try:
+            await processing_message.edit_text("Sorry, an unexpected error occurred while processing your input\.")
+        except Exception as report_err:
+            logger.error(f"Failed to report error to user: {report_err}")
+        return ConversationHandler.END # End on error
+
+# --- NEW Handler for Item Quantity Edits ---
+async def received_item_quantity_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles user input for editing item quantities or finishing."""
+    user_input = update.message.text.strip().lower()
+    chat_id = update.effective_chat.id
+    target_date = context.user_data.get('target_date')
+    parsed_items = context.user_data.get('parsed_items')
+
+    # --- Get correct bot instance ---
+    correct_bot = getattr(update, '_bot', None)
+    if not correct_bot:
+         logger.error(f"Could not access update._bot in received_item_quantity_edit for update {update.update_id}.")
+         await update.message.reply_text("Internal error: Bot context missing.")
+         return ConversationHandler.END
+    # --------------------------------
+
+    if not target_date or not parsed_items:
+        logger.error("received_item_quantity_edit: Missing context data (target_date or parsed_items).")
+        await update.message.reply_text("Error: Missing context. Please start over with /newlog")
+        return ConversationHandler.END
+
+    sheet_date_str = format_date_for_sheet(target_date)
+    sheet_date_str_escaped = escape_markdown(sheet_date_str, version=2)
+
+    if user_input == 'done':
+        logger.info(f"User finished editing quantities for {sheet_date_str}. Proceeding to nutrition lookup.")
+        # --- Proceed with Nutrition Lookup and Confirmation ---
+        processing_message = await update.message.reply_text("Looking up nutrition for the final items...")
 
         nutrition_info = get_nutrition_for_items(parsed_items)
         if not nutrition_info:
-            await processing_message.edit_text("Sorry, I couldn't retrieve nutritional information. Please try again.")
-            return AWAIT_MEAL_INPUT # Allow retry
+            await processing_message.edit_text("Sorry, I couldn\'t retrieve nutritional information for the final items\. Please try again or cancel\.")
+            # Stay in this state or offer cancel? Let's stay for now.
+            # Maybe return AWAIT_MEAL_INPUT? Or offer cancel button?
+            # For now, just inform and stay. User can try 'done' again or restart.
+            # Re-display items might be good here too.
+            items_display = _format_items_for_editing(parsed_items)
+            prompt_text = (
+                f"Failed to get nutrition\. Current items:\n\n"
+                f"{items_display}\n\n"
+                f"You can try editing again or type `done` to retry nutrition lookup\."
+            )
+            await update.message.reply_text(text=prompt_text, parse_mode=ParseMode.MARKDOWN_V2)
+            return AWAIT_ITEM_QUANTITY_EDIT
 
         context.user_data['nutrition_info'] = nutrition_info
-        context.user_data['parsed_items'] = parsed_items
+        logger.info(f"Successfully calculated nutrition for edited items: {nutrition_info}")
 
-        # --- Construct Confirmation Text --- #
+        # --- Construct Confirmation Text (using potentially edited items) ---
+        final_items_display = "\n".join([f"- {i['item']} ({i['quantity_g']:.0f}g)" for i in parsed_items])
         confirmation_text = (
-            f"I parsed this meal for {sheet_date_str}:\n\n"
-            f"Items:\n{parsed_items_str}\n\n"
-            f"Estimated Nutrition:\n"
+            f"Okay, here's the final meal log for {sheet_date_str_escaped}:\n\n"
+            f"**Items**:\n{final_items_display}\n\n"
+            f"**Estimated Nutrition**:\n"
             f"- Calories: {nutrition_info.get('calories', 0):.0f}\n"
             f"- Protein: {int(nutrition_info.get('protein', 0))}g\n"
             f"- Carbs: {int(nutrition_info.get('carbs', 0))}g\n"
@@ -438,7 +519,7 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
         keyboard = [
             [
                 InlineKeyboardButton("✅ Add Meal", callback_data='confirm_meal_yes'),
-                InlineKeyboardButton("✏️ Edit Macros", callback_data='edit_macros'),
+                InlineKeyboardButton("✏️ Edit Totals", callback_data='edit_macros'), # Changed label slightly
                 InlineKeyboardButton("❌ Cancel", callback_data='confirm_meal_no')
             ]
         ]
@@ -450,15 +531,61 @@ async def received_meal_description(update: Update, context: ContextTypes.DEFAUL
             reply_markup=reply_markup,
             parse_mode=ParseMode.MARKDOWN_V2
         )
+        logger.info("Transitioning to AWAIT_MEAL_CONFIRMATION")
         return AWAIT_MEAL_CONFIRMATION
 
-    except Exception as e:
-        logger.error(f"Error in received_meal_description: {e}", exc_info=True)
+    else:
+        # --- Try Parsing Edit Command ---
         try:
-            await processing_message.edit_text("Sorry, an unexpected error occurred while processing your input.")
-        except Exception as report_err:
-            logger.error(f"Failed to report error to user: {report_err}")
-        return ConversationHandler.END # End on error
+            parts = user_input.split()
+            if len(parts) != 2:
+                raise ValueError("Input must be 'item\_number new\_quantity\_g'\.")
+
+            item_num_str, quantity_str = parts
+            item_index = int(item_num_str) - 1 # User sees 1-based index
+
+            if not (0 <= item_index < len(parsed_items)):
+                raise ValueError(f"Invalid item number\. Please choose between 1 and {len(parsed_items)}\.")
+
+            # Remove 'g' if present, then convert to float
+            quantity_str_cleaned = quantity_str.replace('g', '').strip()
+            new_quantity = float(quantity_str_cleaned)
+
+            if new_quantity < 0:
+                raise ValueError("Quantity cannot be negative\.")
+
+            # --- Update the item ---
+            original_item = parsed_items[item_index]['item']
+            original_qty = parsed_items[item_index]['quantity_g']
+            parsed_items[item_index]['quantity_g'] = new_quantity
+            context.user_data['parsed_items'] = parsed_items # Save updated list back
+            logger.info(f"Updated item {item_index + 1} ('{original_item}') quantity from {original_qty:.0f}g to {new_quantity:.0f}g")
+
+            # --- Re-display the list ---
+            items_display = _format_items_for_editing(parsed_items)
+            prompt_text = (
+                f"Updated item {item_index + 1}\. from the Current list:\n\n"
+                f"{items_display}\n\n"
+                f"Edit another item \(`item_number new_quantity_g`\) or type `done`\."
+            )
+            await update.message.reply_text(
+                text=prompt_text,
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            return AWAIT_ITEM_QUANTITY_EDIT # Remain in this state
+
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Invalid edit input '{user_input}': {e}")
+            error_msg_escaped = escape_markdown(str(e), version=2)
+            await update.message.reply_text(
+                f"Invalid format: {error_msg_escaped}\nPlease use `item_number new_quantity_g` \(e\.g\., `1 180`\) or `done`\.",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            return AWAIT_ITEM_QUANTITY_EDIT # Remain in this state
+        except Exception as e:
+             logger.error(f"Unexpected error processing edit command '{user_input}': {e}", exc_info=True)
+             await update.message.reply_text("An unexpected error occurred while processing your edit\. Please try again or type /cancel\.")
+             return AWAIT_ITEM_QUANTITY_EDIT # Remain in state, allow retry or cancel
 
 async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -484,46 +611,43 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
         return ConversationHandler.END
     sheet_date_str = format_date_for_sheet(target_date)
 
-    # --- ADD Handler for Edit Macros ---
+    # --- Handler for Edit Macros (Now 'Edit Totals') ---
     if choice == 'edit_macros':
-        logger.info(f"User chose to edit macros for date {sheet_date_str}")
+        logger.info(f"User chose to edit total macros for date {sheet_date_str}")
         
         # --- Retrieve current values for reference ---
         nutrition_info = context.user_data.get('nutrition_info')
         if not nutrition_info:
             logger.error(f"Could not retrieve nutrition_info from user_data in edit_macros step.")
-            await query.edit_message_text("Error: Could not retrieve original values. Please try starting over.")
+            await query.edit_message_text("Error: Could not retrieve calculated values. Please try starting over.")
             return ConversationHandler.END
         
         current_vals_text = (
-            f"Current estimated values:\n"
+            f"Current calculated values:\n" # Slightly rephrased
             f" Cal: {nutrition_info.get('calories', 0):.0f}, "
             f" P: {nutrition_info.get('protein', 0):.1f}, "
             f" C: {nutrition_info.get('carbs', 0):.1f}, "
             f" F: {nutrition_info.get('fat', 0):.1f}, "
             f" Fi: {nutrition_info.get('fiber', 0):.1f}\n\n"
         )
-        # --- No escaping needed for plain text ---
-        # escaped_current_vals = escape_markdown(current_vals_text, version=2) # REMOVED
-        # ----------------------------------------------------
-        
-        # --- Plain text prompt --- 
+
         prompt_text = (
             f"{current_vals_text}"
             f"**(Note: Calories are calculated automatically from macros)**\n\n"
-            f"Please send the **4 corrected values** in this exact order (space-separated):\n"
-            f"*Protein* *Carbs* *Fat* *Fiber*\n\n"
+            f"If these totals seem incorrect, please send the **4 corrected values** in this exact order (space\\-separated):\n"
+            f"`Protein` `Carbs` `Fat` `Fiber`\n\n"
             f"Example: `35 40 20 8`\n"
             f"(This means 35g Protein, 40g Carbs, 20g Fat, 8g Fiber)"
         )
-        
+
+        # Escape the prompt text for MarkdownV2
+        escaped_prompt_text = escape_markdown(prompt_text, version=2)
+
         await query.edit_message_text(
-            prompt_text # Plain text
-            # parse_mode=ParseMode.MARKDOWN_V2 # REMOVED
+            escaped_prompt_text, # Use escaped text
+            parse_mode=ParseMode.MARKDOWN_V2
         )
-        # -----------------------------------------------------------------
-        return AWAIT_MACRO_EDIT
-    # -----------------------------------
+        return AWAIT_MACRO_EDIT # Transition to the existing macro edit handler
 
     # --- Handler for Cancel --- #
     if choice == 'confirm_meal_no':
@@ -548,8 +672,8 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
     if choice == 'confirm_meal_yes':
         # correct_bot is already defined above
         nutrition_info = context.user_data.get('nutrition_info')
-        parsed_items = context.user_data.get('parsed_items')
-        if not nutrition_info or not parsed_items:
+        parsed_items = context.user_data.get('parsed_items') # Keep parsed items for potential future use/logging?
+        if not nutrition_info or not parsed_items: # Check both just in case
             await query.edit_message_text("Error: Missing nutrition data. Please start over with /newlog")
             return ConversationHandler.END
 
@@ -566,13 +690,13 @@ async def received_meal_confirmation(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("Adding meal to your log...")
 
         # Call the actual function to add nutrition (using data from user_data)
-        logger.info(f"received_meal_confirmation: Calling add_nutrition for {sheet_date_str}")
+        logger.info(f"received_meal_confirmation: Calling add_nutrition for {sheet_date_str} with final values")
         success = add_nutrition(
             sheet_id=sheet_id,
             worksheet_name=worksheet_name,
             target_dt=target_date,
-            bot_token=correct_bot.token, # Now correct_bot is guaranteed to be defined
-            calories=nutrition_info.get('calories', 0),
+            bot_token=correct_bot.token,
+            calories=nutrition_info.get('calories', 0), # Use calculated calories
             p=nutrition_info.get('protein', 0),
             c=nutrition_info.get('carbs', 0),
             f=nutrition_info.get('fat', 0),
@@ -765,4 +889,4 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text("Logging session cancelled.")
     context.user_data.clear()
-    return ConversationHandler.END 
+    return ConversationHandler.END

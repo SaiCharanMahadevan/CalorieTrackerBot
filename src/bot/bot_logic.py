@@ -20,10 +20,11 @@ from .direct_commands import (
 from .conversation_handlers import (
     # Import states directly
     SELECTING_ACTION, AWAITING_METRIC_CHOICE, AWAIT_MEAL_INPUT, AWAIT_MEAL_CONFIRMATION, 
-    AWAIT_METRIC_INPUT, ASK_LOG_MORE, AWAIT_MACRO_EDIT, 
+    AWAIT_METRIC_INPUT, ASK_LOG_MORE, AWAIT_MACRO_EDIT, AWAIT_ITEM_QUANTITY_EDIT, # <-- Add new state
     # Import handlers
     new_log_start, received_date, received_metric_choice, received_metric_value,
     received_meal_description, received_meal_confirmation, received_macro_edit, 
+    received_item_quantity_edit, # <-- Add new handler
     ask_log_more_choice, cancel_conversation
 )
 from .helpers import error_handler
@@ -69,6 +70,9 @@ def create_telegram_application(default_token: str) -> Application:
             AWAIT_MACRO_EDIT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, received_macro_edit) # Imported
             ],
+            AWAIT_ITEM_QUANTITY_EDIT: [ # <-- Add new state definition
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_item_quantity_edit) # <-- Map to handler
+            ],
         },
         fallbacks=[
             CommandHandler('cancel', cancel_conversation), # Imported
@@ -106,4 +110,4 @@ def create_telegram_application(default_token: str) -> Application:
     # Add error handler (now imported)
     application.add_error_handler(error_handler) # <<< Uses imported handler
 
-    return application 
+    return application
