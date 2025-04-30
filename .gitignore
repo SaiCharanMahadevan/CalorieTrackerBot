@@ -61,4 +61,8 @@ Thumbs.db
 service-account-key.json
 
 # Specific bot config file (ensure ignored)
-bot_configs.json 
+bot_configs.json
+
+# Logs from local no-docker script
+ngrok.log
+uvicorn.log

@@ -153,9 +153,15 @@ Data will be logged to the Google Sheet associated with the specific bot you are
 
 ## Local Development
 
+There are two ways to run the application locally:
+
+### 1. Using Docker (Recommended)
+
 Use the provided `run_local.sh` script:
 
 ```bash
+# Ensure Docker Desktop is running
+
 # Run locally
 ./scripts/run_local.sh
 
@@ -175,6 +181,43 @@ This script handles:
 **Logs & Control:**
 *   Follow logs: `docker compose logs -f bot`
 *   Stop: `docker compose down`
+*   Ngrok UI: `http://localhost:4040`
+
+### 2. Without Docker (Alternative)
+
+Use the `run_local_no_docker.sh` script. This runs the application directly on your machine using your local Python installation.
+
+**Prerequisites:**
+*   Python 3.10+ installed locally.
+*   `pip` installed locally.
+*   `ngrok` command-line tool installed locally and authenticated (or `NGROK_AUTH_TOKEN` set in `.env`).
+*   `jq` command-line tool installed locally.
+
+**Steps:**
+1.  **Create and activate a Python virtual environment (Recommended):**
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate 
+    ```
+2.  **Ensure `.env` and `bot_configs.json` are configured.**
+3.  **Run the script:**
+    ```bash
+    bash scripts/run_local_no_docker.sh
+    ```
+
+This script handles:
+1.  Checking for local dependencies (`python3`, `pip`, `ngrok`, `jq`).
+2.  Loading `.env` variables.
+3.  Configuring `ngrok` with `NGROK_AUTH_TOKEN` if found.
+4.  Upgrading `pip` and installing dependencies from `requirements.txt` (within the virtual environment if active).
+5.  Starting `ngrok` and the FastAPI application (`uvicorn`) as background processes.
+6.  Waiting for both services to become ready.
+7.  **Automatically setting the webhook for each bot listed in `bot_configs.json`** to point to the correct ngrok URL.
+
+**Logs & Control:**
+*   Follow app logs: `tail -f uvicorn.log`
+*   Follow ngrok logs: `tail -f ngrok.log`
+*   Stop: Press `Ctrl+C` in the terminal where the script is running.
 *   Ngrok UI: `http://localhost:4040`
 
 ## File Structure
