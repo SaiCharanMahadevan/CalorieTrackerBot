@@ -6,7 +6,7 @@ from telegram.constants import ParseMode
 
 # Project imports
 from src.services.sheets import format_date_for_sheet
-from src.services.nutrition_api import get_nutrition_for_items
+from src.services.nutrition import get_nutrition_for_items
 
 # Local imports
 from .states import AWAIT_ITEM_QUANTITY_EDIT, AWAIT_MEAL_CONFIRMATION
