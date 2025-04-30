@@ -17,15 +17,13 @@ from .direct_commands import (
     start, help_command, log_command_entry, unknown_command, 
     daily_summary_command, weekly_summary_command
 )
-from .conversation_handlers import (
-    # Import states directly
+# Import from the new conv_handlers package via its __init__.py
+from .conv_handlers import (
     SELECTING_ACTION, AWAITING_METRIC_CHOICE, AWAIT_MEAL_INPUT, AWAIT_MEAL_CONFIRMATION, 
-    AWAIT_METRIC_INPUT, ASK_LOG_MORE, AWAIT_MACRO_EDIT, AWAIT_ITEM_QUANTITY_EDIT, # <-- Add new state
-    # Import handlers
+    AWAIT_METRIC_INPUT, ASK_LOG_MORE, AWAIT_MACRO_EDIT, AWAIT_ITEM_QUANTITY_EDIT,
     new_log_start, received_date, received_metric_choice, received_metric_value,
-    received_meal_description, received_meal_confirmation, received_macro_edit, 
-    received_item_quantity_edit, # <-- Add new handler
-    ask_log_more_choice, cancel_conversation
+    received_meal_description, received_item_quantity_edit, received_meal_confirmation, 
+    received_macro_edit, ask_log_more_choice, cancel_conversation
 )
 from .helpers import error_handler
 # -------------------------------------
@@ -44,39 +42,34 @@ def create_telegram_application(default_token: str) -> Application:
 
     # --- Use IMPORTED handlers and states for ConversationHandler --- 
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('newlog', new_log_start)], # Imported
+        entry_points=[CommandHandler('newlog', new_log_start)], # Use imported handler
         states={
-            SELECTING_ACTION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, received_date) # Imported
-            ],
+            SELECTING_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_date)], # Use imported state & handler
             AWAITING_METRIC_CHOICE: [
-                CallbackQueryHandler(received_metric_choice) # Imported
+                CallbackQueryHandler(received_metric_choice), # Use imported handler
+                CallbackQueryHandler(cancel_conversation, pattern='^cancel_log$') # Handle cancel here too
             ],
+            AWAIT_METRIC_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_metric_value)], # Use imported state & handler
             AWAIT_MEAL_INPUT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, received_meal_description),
-                MessageHandler(filters.PHOTO, received_meal_description),
-                MessageHandler(filters.VOICE | filters.AUDIO, received_meal_description)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_meal_description), # Use imported state & handler
+                MessageHandler(filters.PHOTO, received_meal_description), # Handle photo
+                MessageHandler(filters.VOICE | filters.AUDIO, received_meal_description) # Handle audio/voice
+            ],
+            AWAIT_ITEM_QUANTITY_EDIT: [ 
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_item_quantity_edit)
             ],
             AWAIT_MEAL_CONFIRMATION: [
-                CallbackQueryHandler(received_meal_confirmation, pattern='^confirm_meal_'), # Imported
-                CallbackQueryHandler(received_meal_confirmation, pattern='^edit_macros$') # Imported
+                CallbackQueryHandler(received_meal_confirmation), # Use imported handler
+                 CallbackQueryHandler(cancel_conversation, pattern='^confirm_meal_no$') # Added explicit cancel route
             ],
-            AWAIT_METRIC_INPUT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, received_metric_value) # Imported
-            ],
-            ASK_LOG_MORE: [
-                CallbackQueryHandler(ask_log_more_choice, pattern='^(log_more|finish_log)$') # Imported
-            ],
-            AWAIT_MACRO_EDIT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, received_macro_edit) # Imported
-            ],
-            AWAIT_ITEM_QUANTITY_EDIT: [ # <-- Add new state definition
-                MessageHandler(filters.TEXT & ~filters.COMMAND, received_item_quantity_edit) # <-- Map to handler
-            ],
+            AWAIT_MACRO_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_macro_edit)], # Use imported state & handler
+            ASK_LOG_MORE: [CallbackQueryHandler(ask_log_more_choice)] # Use imported state & handler
         },
         fallbacks=[
-            CommandHandler('cancel', cancel_conversation), # Imported
-            CallbackQueryHandler(cancel_conversation, pattern='^cancel_log$') # Imported
+            CommandHandler('cancel', cancel_conversation), # Use imported handler
+            # Removed CallbackQueryHandler for cancel_log here as it's handled in AWAITING_METRIC_CHOICE
+            # Keep a general message fallback?
+            # MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_state_message) # Optional: catch unhandled text
         ],
         allow_reentry=True
     )

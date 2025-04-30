@@ -92,27 +92,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# --- Webhook Endpoint ---
-# @app.post("/") # Listen at the root path <-- This was the version before multi-token path
-# async def handle_webhook(request: Request):
-#     """Handles incoming Telegram updates and passes them to the PTB application."""
-#     if not telegram_app:
-#         logger.error("Telegram application not initialized during request handling.")
-#         raise HTTPException(status_code=503, detail="Bot service not available")
-# 
-#     try:
-#         data = await request.json()
-#         update = Update.de_json(data, telegram_app.bot) 
-#         logger.debug(f"Received update {update.update_id}")
-#         await telegram_app.process_update(update)
-#         return Response(status_code=200)
-#     except json.JSONDecodeError:
-#         logger.error("Failed to decode JSON from webhook request body.")
-#         raise HTTPException(status_code=400, detail="Invalid JSON payload")
-#     except Exception as e:
-#         logger.error(f"Error processing update in webhook handler: {e}", exc_info=True)
-#         raise HTTPException(status_code=500, detail="Error processing update")
-
 # --- Restore original simpler root endpoint (optional - can be removed if not needed) ---
 # This will likely only work correctly if the DEFAULT bot (first in config)
 # has its webhook set to the root URL.
