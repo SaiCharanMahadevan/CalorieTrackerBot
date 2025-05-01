@@ -13,9 +13,9 @@ class TestSheetsUtils(unittest.TestCase):
         self.assertEqual(utils.format_date_for_sheet(dt), expected)
 
     def test_format_date_for_sheet_different_date(self):
-        """Test a different date."""
-        dt = datetime.datetime(2024, 1, 5, 0, 0) 
-        expected = "Jan 05"
+        """Test a different date, including single-digit day."""
+        dt = datetime.datetime(2024, 1, 5, 0, 0)
+        expected = "Jan 5"
         self.assertEqual(utils.format_date_for_sheet(dt), expected)
 
     def test_format_date_for_sheet_requires_datetime(self):
