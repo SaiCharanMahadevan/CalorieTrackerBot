@@ -10,7 +10,6 @@ class TestNutritionApi(unittest.TestCase):
     def _create_mock_item(self, name: str, quantity: float) -> Dict[str, Any]:
         return {"item": name, "quantity_g": quantity}
 
-    # Removed USDA patches, only patching Gemini
     @patch('src.services.nutrition.api._estimate_nutrition_with_gemini')
     def test_get_nutrition_success_gemini_path(self, mock_estimate_gemini):
         """Test successful path using ONLY Gemini data."""
@@ -56,14 +55,6 @@ class TestNutritionApi(unittest.TestCase):
         self.assertEqual(result, expected_result)
         # Verify Gemini was called
         mock_estimate_gemini.assert_called_once_with("unknown food", 200)
-
-    # Test removed as it specifically tested USDA detail failure -> Gemini fallback,
-    # which is no longer a possible path. The scenarios are covered by the tests above/below.
-    # @patch('src.services.nutrition.api._estimate_nutrition_with_gemini')
-    # @patch('src.services.nutrition.api._get_usda_nutrition_details')
-    # @patch('src.services.nutrition.api._choose_best_usda_match')
-    # @patch('src.services.nutrition.api._search_usda_food')
-    # def test_get_nutrition_usda_details_fail_fallback_gemini(...): # REMOVED
 
     def test_get_nutrition_empty_list(self):
         """Test with an empty input list."""

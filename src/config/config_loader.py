@@ -28,7 +28,6 @@ class AppConfig:
 
         # --- Shared Configuration ---
         self.gemini_api_key: Optional[str] = None
-        self.usda_api_key: Optional[str] = None
         self.service_account_json_string: Optional[str] = None # Still load the SA key content
 
         # --- Multi-Bot Configuration ---
@@ -42,12 +41,6 @@ class AppConfig:
         if not self.gemini_api_key:
             logger.error("GEMINI_API_KEY not found in environment variables")
             raise ValueError("GEMINI_API_KEY is required")
-
-        # Load USDA API Key
-        self.usda_api_key = os.environ.get("USDA_API_KEY")
-        if not self.usda_api_key:
-            logger.error("USDA_API_KEY not found in environment variables")
-            raise ValueError("USDA_API_KEY is required")
 
         # Load Service Account JSON String from appropriate source
         # Priority: GOOGLE_APPLICATION_CREDENTIALS file path, then SERVICE_ACCOUNT_JSON env var

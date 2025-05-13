@@ -1,13 +1,13 @@
 # Telegram Health Metrics Bot
 
-This bot allows you to log daily health metrics (like weight, sleep, steps) and meals via Telegram. It parses meal descriptions, looks up nutritional information (using USDA FoodData Central API and Google Gemini), and records the data in a designated Google Sheet.
+This bot allows you to log daily health metrics (like weight, sleep, steps) and meals via Telegram. It parses meal descriptions, looks up nutritional information (using Google Gemini), and records the data in a designated Google Sheet.
 
 ## Features
 
 *   **Multi-Bot Support:** Run multiple independent bot instances from a single application deployment. Each bot uses its own configuration (Google Sheet, allowed users).
 *   Log various health metrics for specific dates (defaults to today).
 *   Log meals using **natural language descriptions** (e.g., "150g chicken and 1 cup broccoli"), **by sending photos**, or **via voice/audio messages within the /newlog conversation**.
-*   Automatically calculates estimated Calories, Protein, Carbs, Fat, and Fiber for meals using Google Gemini and USDA FoodData Central.
+*   Automatically calculates estimated Calories, Protein, Carbs, Fat, and Fiber for meals using Google Gemini.
 *   Adds meal nutrition data cumulatively to the specified date in the bot's designated Google Sheet.
 *   Updates other metrics (Weight, Sleep, etc.) by overwriting the value for the specified date in the bot's designated Google Sheet.
 *   Uses Google Sheets as the data backend (one sheet per configured bot).
@@ -50,12 +50,10 @@ This bot allows you to log daily health metrics (like weight, sleep, steps) and 
 
 6.  **API Keys:**
     *   **Gemini API Key:** Obtain from [Google AI Studio](https://aistudio.google.com/app/apikey).
-    *   **USDA API Key:** Obtain from the [USDA FoodData Central API website](https://api.nal.usda.gov/fdc/v1/signup).
 
 7.  **Configuration:**
     *   **Environment Variables (Required for Deployment & Local):**
         *   `GEMINI_API_KEY`: Your Gemini API Key.
-        *   `USDA_API_KEY`: Your USDA API Key.
         *   Set **ONE** of the following for the Google Service Account:
             *   `GOOGLE_APPLICATION_CREDENTIALS`: **Path** to the service account JSON key file (e.g., `/etc/secrets/service-account.json` in Render, or a local path).
             *   `SERVICE_ACCOUNT_JSON`: The **content** (string) of the service account JSON key.
@@ -86,11 +84,10 @@ This bot allows you to log daily health metrics (like weight, sleep, steps) and 
         *   **`schema_type`**: Determines column mapping and the first data row (0-based index: 1 for "template", 9 for "legacy"). Use `"template"` for new sheets based on the provided template, or `"legacy"` for the original format.
         *   **Ensure `bot_configs.json` is added to your `.gitignore` file!**
     *   **Local `.env` file (For Development ONLY):**
-        *   You can place the environment variables (`GEMINI_API_KEY`, `USDA_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` or `SERVICE_ACCOUNT_JSON`, `BOT_CONFIG_PATH`) in a `.env` file for local development convenience. The `run_local.sh` script also requires `NGROK_AUTH_TOKEN` in `.env`.
+        *   You can place the environment variables (`GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` or `SERVICE_ACCOUNT_JSON`, `BOT_CONFIG_PATH`) in a `.env` file for local development convenience. The `run_local.sh` script also requires `NGROK_AUTH_TOKEN` in `.env`.
         *   **Example `.env`:**
             ```dotenv
             GEMINI_API_KEY=YOUR_GEMINI_API_KEY_PLACEHOLDER
-            USDA_API_KEY=YOUR_USDA_API_KEY_PLACEHOLDER
             GOOGLE_APPLICATION_CREDENTIALS=./path/to/your/local-service-account.json # Or use SERVICE_ACCOUNT_JSON="{...}"
             BOT_CONFIG_PATH=./bot_configs.json # Optional, defaults to ./bot_configs.json
             NGROK_AUTH_TOKEN=YOUR_NGROK_TOKEN_FROM_NGROK_DASHBOARD
@@ -113,7 +110,7 @@ Render deploys automatically based on commits to the linked Git repository branc
     *   **Runtime:** Set to `Docker`.
     *   **Health Check Path:** Set to `/health`.
     *   **Environment Variables & Secrets:** Configure the following in the service's "Environment" section:
-        *   Regular Variables: `GEMINI_API_KEY`, `USDA_API_KEY`, `PYTHON_VERSION` (e.g., `3.10`), `PORT` (e.g., `8080`).
+        *   Regular Variables: `GEMINI_API_KEY`, `PYTHON_VERSION` (e.g., `3.10`), `PORT` (e.g., `8080`).
         *   Secret Files:
             *   Add a secret file named `service-account.json` containing the Google Service Account JSON key content.
             *   Add another secret file named `bot_configs.json` containing the JSON array of your bot configurations.

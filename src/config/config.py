@@ -30,11 +30,6 @@ SCOPES = [
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'YOUR_GEMINI_API_KEY_PLACEHOLDER')
 GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-2.0-flash') # Do not change this
 
-# --- USDA FoodData Central API Configuration ---
-# Replace with your actual USDA API Key (obtainable from api.nal.usda.gov)
-USDA_API_KEY = os.getenv('USDA_API_KEY', 'YOUR_USDA_API_KEY_PLACEHOLDER')
-USDA_API_BASE_URL = "https://api.nal.usda.gov/fdc/v1"
-
 # --- Schema-Specific Column Mappings --- #
 # Standardized Keys used by the bot logic
 # Values are the 0-based indices for each schema type
@@ -150,14 +145,4 @@ LOGGING_CHOICES_MAP = {
         'metrics': ['WATER_COL_IDX'], # Standardized key
         'num_values': 1
     },
-}
-
-# Nutrient IDs for USDA API (Common ones, verify if needed)
-# These might vary slightly depending on the exact food data type returned by USDA
-NUTRIENT_ID_MAP = {
-    'calories': 1008, # Energy in kcal
-    'protein': 1003,  # Protein
-    'carbs': 1005,    # Carbohydrate, by difference
-    'fat': 1004,      # Total lipid (fat)
-    'fiber': 1079     # Fiber, total dietary
 } 
