@@ -128,20 +128,20 @@ class TestSheetsRows(unittest.TestCase):
         mock_ws = MagicMock()
         mock_ws.row_count = 10 # Set row count
         # Mock getting existing dates for insertion point calculation
-        mock_ws.get.return_value = [['Nov 01'], ['Nov 03']] 
+        mock_ws.get.return_value = [['Nov 1'], ['Nov 3']]  # FIXED: Use correct format (no leading zero)
         mock_column_map = {'DATE_COL_IDX': 0, 'COL1_IDX': 1} # Need >1 col for row creation size
         mock_first_data_row = 5 # Example start row index
         mock_get_details.return_value = (mock_ws, mock_column_map, mock_first_data_row, "sheet_id", "ws_name")
 
         sheet_id = "test_sheet_id"
         worksheet_name = "test_ws_name"
-        target_dt = datetime.datetime(2023, 11, 2) # Target date Nov 02
-        formatted_date = "Nov 02"
+        target_dt = datetime.datetime(2023, 11, 2) # Target date Nov 2
+        formatted_date = "Nov 2" # FIXED: Use correct format
         bot_token = "dummy_token"
 
         result = rows.ensure_date_row(sheet_id, worksheet_name, target_dt, bot_token)
 
-        # Should insert between Nov 01 (idx 5) and Nov 03 (idx 6)
+        # Should insert between Nov 1 (idx 5) and Nov 3 (idx 6)
         # Expected insertion index (0-based) is 6
         expected_insert_index_0based = 6
         self.assertEqual(result, expected_insert_index_0based)

@@ -48,7 +48,7 @@ class TestLogCommand(unittest.IsolatedAsyncioTestCase):
         return mock_update, mock_context, mock_bot
 
     # --- Test Methods (Simplify: Keep only first test for now) ---
-    @patch('datetime.date') # Outermost patch -> First arg: mock_date
+    @patch('src.bot.commands.log_command.date') # Outermost patch -> First arg: mock_date
     @patch('src.bot.commands.log_command._get_current_sheet_config') # Innermost patch -> Last arg: mock_get_config
     async def test_log_command_entry_no_args(self, mock_date, mock_get_config):
         """Test /log with no arguments."""
@@ -77,7 +77,7 @@ class TestLogCommand(unittest.IsolatedAsyncioTestCase):
     async def test_log_command_text_metric_success(self):
         """Test /log with a standard text metric update."""
         # Use nested `with patch(...)` instead of decorators
-        with patch('datetime.date') as mock_date, \
+        with patch('src.bot.commands.log_command.date') as mock_date, \
              patch('src.bot.commands.log_command.format_date_for_sheet', return_value=FIXED_TODAY_STR) as mock_format_date, \
              patch('src.bot.commands.log_command.add_nutrition', new_callable=AsyncMock) as mock_add_nutrition, \
              patch('src.bot.commands.log_command.update_metrics') as mock_update_metrics, \
@@ -126,7 +126,7 @@ class TestLogCommand(unittest.IsolatedAsyncioTestCase):
     async def test_log_command_meal_text_success(self):
         """Test /log meal with text description."""
         # Nested patches for dependencies
-        with patch('datetime.date') as mock_date, \
+        with patch('src.bot.commands.log_command.date') as mock_date, \
              patch('src.bot.commands.log_command.format_date_for_sheet', return_value=FIXED_TODAY_STR) as mock_format_date, \
              patch('src.bot.commands.log_command.add_nutrition', new_callable=AsyncMock) as mock_add_nutrition, \
              patch('src.bot.commands.log_command.update_metrics') as mock_update_metrics, \
@@ -187,7 +187,7 @@ class TestLogCommand(unittest.IsolatedAsyncioTestCase):
     async def test_log_command_photo_meal_success(self):
         """Test /log meal with photo attachment."""
         # Nested patches for dependencies
-        with patch('datetime.date') as mock_date, \
+        with patch('src.bot.commands.log_command.date') as mock_date, \
              patch('src.bot.commands.log_command.format_date_for_sheet', return_value=FIXED_TODAY_STR) as mock_format_date, \
              patch('src.bot.commands.log_command.add_nutrition', new_callable=AsyncMock) as mock_add_nutrition, \
              patch('src.bot.commands.log_command.update_metrics') as mock_update_metrics, \

@@ -219,7 +219,7 @@ async def _handle_photo_log(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         target_date = date.today() # Default to today for direct photo log
         sheet_date_str = format_date_for_sheet(target_date)
         logger.info("_handle_photo_log: Calling add_nutrition...")
-        success = await add_nutrition(
+        success = add_nutrition(
             sheet_id=sheet_id,
             worksheet_name=worksheet_name,
             target_dt=target_date,
