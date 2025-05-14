@@ -107,10 +107,10 @@ class TestSheetsReader(unittest.TestCase):
         mock_response = MagicMock(spec=requests.Response)
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
-        mock_response.json.return_value = {"error": {"message": "Read failed"}}
+        mock_response.json.return_value = {"error": {"code": 500, "message": "Read failed"}}
         mock_ws.get.side_effect = gspread.exceptions.APIError(mock_response)
         mock_get_details.return_value = (mock_ws, {'DATE_COL_IDX': 0}, 2, "sheet_id", "ws_name")
-        mock_find_row.return_value = 9 # Found the row
+        mock_find_row.return_value = 9 # Found the row (0-based index for row 10)
 
         sheet_id = "test_sheet_id"
         worksheet_name = "metrics_ws"
@@ -118,7 +118,9 @@ class TestSheetsReader(unittest.TestCase):
         start_col_idx = 1 
         end_col_idx = 1
         bot_token = "dummy_token"
-        expected_a1_range = "B10:B10"
+        # Row number is 0-based index + 1. Columns are 0-based index + 'A'.
+        # Row = 9 + 1 = 10. Start Col = chr(ord('A') + 1) = 'B'. End Col = chr(ord('A') + 1) = 'B'.
+        expected_a1_range = "B10:B10" 
 
         result = reader.read_data_range(sheet_id, worksheet_name, target_dt, start_col_idx, end_col_idx, bot_token)
 

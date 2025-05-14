@@ -5,7 +5,7 @@ import json
 import os
 from typing import List, Dict, Any
 from src.services.ai_models import AIModelManager
-import google.generativeai as genai # Import genai
+from google import genai # Changed import
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

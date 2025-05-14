@@ -2,7 +2,7 @@
 
 import logging
 from typing import Optional
-import google.generativeai as genai # Import the Gemini library
+from google import genai # Changed import
 
 # Assuming ai_models initializes the client correctly
 from .ai_models import AIModelManager # Function to get the initialized Gemini client
