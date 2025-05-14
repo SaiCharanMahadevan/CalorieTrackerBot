@@ -5,7 +5,8 @@ import json
 import os
 from typing import List, Dict, Any
 from src.services.ai_models import AIModelManager
-from google import genai # Changed import
+# Import the types module from google.genai for proper image formatting
+from google import genai
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -13,13 +14,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def parse_meal_text_with_gemini(meal_text: str) -> List[Dict[str, Any]]:
+def parse_meal_text_with_gemini(meal_text: str) -> List[Dict[str, Any]] | None:
     """Parse meal text using Gemini API to extract food items and quantities."""
-    # Get the model instance for text parsing
-    model = AIModelManager.get_model('meal_text')
-    
-    # Enhanced prompt for better structure and unit handling
-    prompt = f"""
+    try:
+        # Enhanced prompt for better structure and unit handling
+        prompt = f"""
     Analyze the following meal description. Extract each distinct food item mentioned.
     For each item, determine its quantity and convert it to grams (g).
     - If a unit is provided (e.g., g, oz, kg, ml, cup, piece, slice), convert it to grams.
@@ -38,16 +37,15 @@ def parse_meal_text_with_gemini(meal_text: str) -> List[Dict[str, Any]]:
 
     Output:
     """
-    logger.info(f"Sending meal description to Gemini for parsing: {meal_text}")
-    try:
-        # Define generation config for consistency
-        generation_config = genai.types.GenerationConfig(temperature=0.2)
+        logger.info(f"Sending meal description to Gemini for parsing: {meal_text}")
         
-        # Add timeout and generation config
-        response = model.generate_content(
-            prompt, 
-            generation_config=generation_config, 
-            request_options={"timeout": 30}
+        # Use a dictionary for generation_config
+        generation_config_dict = {"temperature": 0.2}
+        
+        response = AIModelManager.generate_content(
+            use_case='meal_text',
+            contents=[prompt], 
+            config=generation_config_dict
         )
         # Clean up potential markdown code fences and surrounding text/whitespace
         cleaned_text = response.text.strip().lstrip('```json').rstrip('```').strip()
@@ -57,7 +55,6 @@ def parse_meal_text_with_gemini(meal_text: str) -> List[Dict[str, Any]]:
         parsed_json = json.loads(cleaned_text)
 
         if isinstance(parsed_json, list):
-             # Validate structure
              validated_list = []
              all_valid = True
              for item in parsed_json:
@@ -69,8 +66,6 @@ def parse_meal_text_with_gemini(meal_text: str) -> List[Dict[str, Any]]:
                  else:
                      logger.warning(f"Invalid item structure in Gemini response: {item}")
                      all_valid = False
-                     # Decide whether to discard the item or the whole response
-                     # For now, let's try to keep valid items
 
              if not validated_list:
                  logger.error("Gemini response parsed, but no valid items found.")
@@ -85,14 +80,19 @@ def parse_meal_text_with_gemini(meal_text: str) -> List[Dict[str, Any]]:
              return None
 
     except json.JSONDecodeError as json_err:
-        logger.error(f"Error decoding Gemini JSON response: {json_err}. Response text: '{cleaned_text}'")
+        # Ensure cleaned_text is defined in this scope if json.loads fails
+        cleaned_text_for_error = 'Error before response text was processed'
+        try:
+            cleaned_text_for_error = cleaned_text # Will exist if json.loads is the point of failure
+        except NameError:
+            pass
+        logger.error(f"Error decoding Gemini JSON response: {json_err}. Response text: '{cleaned_text_for_error}'")
         return None
     except Exception as e:
-        # Catch potential API errors, rate limits, etc.
-        logger.error(f"Error calling Gemini API or processing response: {e}")
+        logger.error(f"Error calling Gemini API or processing response in parse_meal_text: {e}", exc_info=True)
         return None
 
-def parse_meal_image_with_gemini(image_data: bytes) -> List[Dict[str, Any]]:
+def parse_meal_image_with_gemini(image_data: bytes) -> List[Dict[str, Any]] | None:
     """Parse meal image using Gemini API to extract food items and quantities.
     
     Args:
@@ -104,10 +104,6 @@ def parse_meal_image_with_gemini(image_data: bytes) -> List[Dict[str, Any]]:
     """
     logger.info("Sending meal image to Gemini for parsing")
     try:
-        # Get the model instance for image parsing
-        model = AIModelManager.get_model('meal_vision')
-        
-        # Create a prompt for the image analysis
         prompt = """
         Analyze this image of food. Identify each distinct food item visible.
         For each item, estimate its quantity in grams (g).
@@ -121,26 +117,34 @@ def parse_meal_image_with_gemini(image_data: bytes) -> List[Dict[str, Any]]:
 
         Example Output: [{"item": "chicken breast", "quantity_g": 150.0}, {"item": "broccoli", "quantity_g": 100.0}, {"item": "rice", "quantity_g": 180.0}]
         """
-        # Define generation config for consistency
-        generation_config = genai.types.GenerationConfig(temperature=0.2)
+        
+        # Use a dictionary for generation_config 
+        generation_config_dict = {"temperature": 0.2}
 
-        # Generate content with the image, prompt, and config
-        response = model.generate_content(
-            [prompt, {"mime_type": "image/jpeg", "data": image_data}],
-            generation_config=generation_config,
-            request_options={"timeout": 30} # Add timeout here too if needed
+        # For the new SDK, create an image part using the SDK's Part.from_bytes method
+        # Note: For multimodal content, it's recommended to place the image first for better results
+        image_part = genai.types.Part.from_bytes(
+            data=image_data,
+            mime_type="image/jpeg"  # Explicitly specify MIME type
+        )
+
+        # Create contents with image part first, followed by the prompt text
+        # This ordering can improve model performance with visual content according to Google's documentation
+        contents = [image_part, prompt]
+
+        response = AIModelManager.generate_content(
+            use_case='meal_vision',
+            contents=contents,
+            config=generation_config_dict
         )
         
-        # Clean up potential markdown code fences and surrounding text/whitespace
         cleaned_text = response.text.strip().lstrip('```json').rstrip('```').strip()
         logger.debug(f"Raw Gemini vision response: {response.text}")
         logger.debug(f"Cleaned Gemini vision response: {cleaned_text}")
         
-        # Parse the JSON response
         parsed_json = json.loads(cleaned_text)
         
         if isinstance(parsed_json, list):
-            # Validate structure
             validated_list = []
             all_valid = True
             for item in parsed_json:
@@ -166,11 +170,15 @@ def parse_meal_image_with_gemini(image_data: bytes) -> List[Dict[str, Any]]:
             return None
             
     except json.JSONDecodeError as json_err:
-        logger.error(f"Error decoding Gemini vision JSON response: {json_err}. Response text: '{cleaned_text}'")
+        cleaned_text_for_error = 'Error before response text was processed'
+        try:
+            cleaned_text_for_error = cleaned_text
+        except NameError:
+            pass
+        logger.error(f"Error decoding Gemini vision JSON response: {json_err}. Response text: '{cleaned_text_for_error}'")
         return None
     except Exception as e:
-        # Catch potential API errors, rate limits, etc.
-        logger.error(f"Error calling Gemini vision API or processing response: {e}")
+        logger.error(f"Error calling Gemini vision API or processing response in parse_meal_image: {e}", exc_info=True)
         return None
 
 # --- Example Usage (for testing) ---

@@ -2,30 +2,26 @@
 
 import logging
 from typing import Optional
-from google import genai # Changed import
+from google import genai  # Import genai for using the types module
 
 # Assuming ai_models initializes the client correctly
 from .ai_models import AIModelManager # Function to get the initialized Gemini client
 
 logger = logging.getLogger(__name__)
 
-async def transcribe_audio(audio_bytes: bytes) -> Optional[str]:
+async def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> Optional[str]:
     """
     Transcribes the given audio bytes using the configured Gemini model.
 
     Args:
         audio_bytes: The raw bytes of the audio file.
+        mime_type: The MIME type of the audio file (e.g., "audio/ogg", "audio/mp3").
 
     Returns:
         The transcribed text as a string, or None if transcription fails.
     """
-    logger.info(f"Attempting to transcribe audio ({len(audio_bytes)} bytes)...")
+    logger.info(f"Attempting to transcribe audio ({len(audio_bytes)} bytes, type: {mime_type})...")
     try:
-        model = AIModelManager.get_model('transcription')
-        if not model:
-            logger.error("Gemini model not available for transcription.")
-            return None
-
         # Define the refined prompt for accurate transcription
         prompt = """
         Your sole task is high-fidelity audio transcription.
@@ -35,14 +31,22 @@ async def transcribe_audio(audio_bytes: bytes) -> Optional[str]:
         Focus on converting the speech to text as literally as possible.
         """
 
-        # Prepare the audio input part (assuming API structure)
-        # Let's explicitly define the parts for clarity, matching the prompt structure
-        audio_input_part = {"mime_type": "audio/ogg", "data": audio_bytes}
+        # Prepare the audio content using the proper SDK types
+        audio_part = genai.types.Part.from_bytes(
+            data=audio_bytes,
+            mime_type=mime_type
+        )
+
+        # For multimodal content, the Google GenAI documentation recommends 
+        # placing the media content first for better results - place audio before prompt
+        contents = [audio_part, prompt]
 
         # Generate content using the prompt and audio
-        # Ensure the model call structure matches library requirements
-        # Using generate_content for potential future async adaptation, though might call synchronously
-        response = model.generate_content([prompt, audio_input_part])
+        response = AIModelManager.generate_content(
+            use_case='transcription',
+            contents=contents,
+            config={"temperature": 0.2}
+        )
 
         # Check and extract the transcribed text
         if response and response.text:

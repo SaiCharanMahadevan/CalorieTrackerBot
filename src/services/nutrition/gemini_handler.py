@@ -15,10 +15,9 @@ logger = logging.getLogger(__name__)
 @lru_cache(maxsize=256) # Cache Gemini estimations
 def _estimate_nutrition_with_gemini(item_name: str, quantity_g: float) -> dict | None:
     """Uses Gemini to estimate nutrition as a fallback."""
-    # Get the nutrition model instance
-    model = AIModelManager.get_model('nutrition')
-    
-    prompt = f"""
+    try:
+        
+        prompt = f"""
     Estimate the nutritional information (calories, protein, carbohydrates, fat, and fiber) for the following food item and quantity. Provide values per the specified quantity, not per 100g.
 
     Food Item: "{item_name}"
@@ -35,11 +34,16 @@ def _estimate_nutrition_with_gemini(item_name: str, quantity_g: float) -> dict |
     
     Output:
     """
-    logger.info(f"Requesting Gemini nutrition estimation for '{item_name}' ({quantity_g}g)")
-    try:
-        # Add timeout to prevent hanging
-        response = model.generate_content(prompt, request_options={"timeout": 30})  # 30 second timeout
-        # Clean up potential markdown code fences and surrounding text/whitespace
+        logger.info(f"Requesting Gemini nutrition estimation for '{item_name}' ({quantity_g}g)")
+        
+        generation_config_dict = {"temperature": 0.2} # For more factual output
+        
+        response = AIModelManager.generate_content(
+            use_case='nutrition',
+            contents=[prompt], 
+            config=generation_config_dict
+        )
+        
         cleaned_text = response.text.strip().lstrip('```json').rstrip('```').strip()
         logger.debug(f"Raw Gemini response: {response.text}")
         logger.debug(f"Cleaned Gemini response: {cleaned_text}")
@@ -61,8 +65,13 @@ def _estimate_nutrition_with_gemini(item_name: str, quantity_g: float) -> dict |
             return None
         
     except json.JSONDecodeError as json_err:
-        logger.error(f"Error decoding Gemini nutrition JSON response: {json_err}. Response text: '{cleaned_text}'")
+        cleaned_text_for_error = 'Error before response text was processed'
+        try:
+            cleaned_text_for_error = cleaned_text
+        except NameError:
+            pass
+        logger.error(f"Error decoding Gemini nutrition JSON response: {json_err}. Response text: '{cleaned_text_for_error}'")
         return None
     except Exception as e:
-        logger.error(f"Error calling Gemini API for nutrition estimation: {e}")
+        logger.error(f"Error calling Gemini API for nutrition estimation: {e}", exc_info=True)
         return None 
