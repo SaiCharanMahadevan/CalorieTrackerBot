@@ -50,7 +50,7 @@ class AIModelManager:
             if cls._client is None:
                 raise RuntimeError("GenAI client not initialized before calling get_model.")
 
-            cls._instances[use_case] = cls._client.get_model(model_name_for_sdk)
+            cls._instances[use_case] = cls._client.models.get_model(model_name_for_sdk)
             logger.info(f"Created new AI model instance for use case: {use_case} with model {model_name_for_sdk}")
         
         return cls._instances[use_case]
