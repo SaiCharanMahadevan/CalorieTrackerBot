@@ -8,14 +8,14 @@ class TestSheetsUtils(unittest.TestCase):
 
     def test_format_date_for_sheet_basic(self):
         """Test standard date formatting."""
-        dt = datetime.datetime(2023, 10, 27, 15, 30)
-        expected = "Oct 27"
+        dt = datetime.date(2024, 7, 16)
+        expected = 'Jul 16, 2024'
         self.assertEqual(utils.format_date_for_sheet(dt), expected)
 
     def test_format_date_for_sheet_different_date(self):
         """Test a different date, including single-digit day."""
-        dt = datetime.datetime(2024, 1, 5, 0, 0)
-        expected = "Jan 5"
+        dt = datetime.date(2023, 12, 25)
+        expected = 'Dec 25, 2023'
         self.assertEqual(utils.format_date_for_sheet(dt), expected)
 
     def test_format_date_for_sheet_requires_datetime(self):

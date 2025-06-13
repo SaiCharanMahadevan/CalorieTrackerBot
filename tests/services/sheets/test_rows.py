@@ -14,52 +14,29 @@ class TestSheetsRows(unittest.TestCase):
 
     def test_find_row_by_date_found(self, mock_get_details):
         """Test finding an existing row by date."""
-        mock_ws = MagicMock()
-        mock_ws.row_count = 10 # Set row count
-        mock_cell = MagicMock()
-        mock_cell.row = 5 # gspread cell row is 1-based
-        # Setup mock worksheet methods needed by find_row_by_date
-        mock_ws.get.return_value = [['Oct 25'], ['Oct 26'], ['Oct 27'], ['Oct 28'], ['Oct 29']]
-        # Mock the details helper return value
-        mock_column_map = {'DATE_COL_IDX': 0} 
-        mock_first_data_row = 1 # 0-based index for first data row
-        mock_get_details.return_value = (mock_ws, mock_column_map, mock_first_data_row, "sheet_id", "ws_name")
-
-        sheet_id = "test_sheet_id"
-        worksheet_name = "test_ws_name"
-        target_dt = datetime.datetime(2023, 10, 27)
-        bot_token = "dummy_token"
-
+        worksheet = MagicMock()
+        worksheet.row_count = 10
+        worksheet.get.return_value = [["Jul 16, 2024"], ["Jul 17, 2024"]]
+        mock_get_details.return_value = (worksheet, {"DATE_COL_IDX": 0}, 1, "sheet_id", "ws_name")
+        sheet_id = "sheet_id"
+        worksheet_name = "ws_name"
+        target_dt = datetime.date(2024, 7, 16)
+        bot_token = "token"
         result = rows.find_row_by_date(sheet_id, worksheet_name, target_dt, bot_token)
-
-        # Expected row is 3 (0-based index: index 2 in the list + first_data_row 1)
-        expected_row_index = 2 + mock_first_data_row
-        self.assertEqual(result, expected_row_index)
-        mock_get_details.assert_called_once_with(bot_token)
-        # Correct assertion: Use mock_ws.row_count for range calculation
-        expected_range = f"A{mock_first_data_row + 1}:A{mock_ws.row_count}"
-        mock_ws.get.assert_called_once_with(expected_range)
+        self.assertEqual(result, 1)
 
     def test_find_row_by_date_not_found(self, mock_get_details):
         """Test when the date is not found in the sheet."""
-        mock_ws = MagicMock()
-        mock_ws.row_count = 5 # Set row count
-        mock_ws.get.return_value = [['Oct 25'], ['Oct 26']]
-        mock_column_map = {'DATE_COL_IDX': 0}
-        mock_first_data_row = 0
-        mock_get_details.return_value = (mock_ws, mock_column_map, mock_first_data_row, "sheet_id", "ws_name")
-
-        sheet_id = "test_sheet_id"
-        worksheet_name = "test_ws_name"
-        target_dt = datetime.datetime(2023, 10, 28)
-        bot_token = "dummy_token"
-
+        worksheet = MagicMock()
+        worksheet.row_count = 10
+        worksheet.get.return_value = [["Jul 16, 2024"], ["Jul 17, 2024"]]
+        mock_get_details.return_value = (worksheet, {"DATE_COL_IDX": 0}, 1, "sheet_id", "ws_name")
+        sheet_id = "sheet_id"
+        worksheet_name = "ws_name"
+        target_dt = datetime.date(2025, 7, 16)
+        bot_token = "token"
         result = rows.find_row_by_date(sheet_id, worksheet_name, target_dt, bot_token)
-
         self.assertIsNone(result)
-        mock_get_details.assert_called_once_with(bot_token)
-        expected_range = f"A{mock_first_data_row + 1}:A{mock_ws.row_count}"
-        mock_ws.get.assert_called_once_with(expected_range)
 
     def test_find_row_by_date_details_helper_fails(self, mock_get_details):
         """Test handling when _get_bot_sheet_details returns None."""

@@ -129,5 +129,24 @@ class TestSheetsReader(unittest.TestCase):
         mock_find_row.assert_called_once_with(sheet_id, worksheet_name, target_dt, bot_token)
         mock_ws.get.assert_called_once_with(expected_a1_range, value_render_option='UNFORMATTED_VALUE')
 
+    @patch('src.services.sheets.reader.find_row_by_date')
+    def test_read_data_range_found(self, mock_find_row_by_date):
+        worksheet = MagicMock()
+        worksheet.get.return_value = [[1, 2, 3]]
+        details = (worksheet, {}, 0, 'sheet_id', 'ws_name')
+        with patch('src.services.sheets.reader._get_bot_sheet_details', return_value=details):
+            mock_find_row_by_date.return_value = 1
+            result = reader.read_data_range('sheet_id', 'ws_name', datetime.date(2024, 7, 16), 0, 2, 'token')
+            self.assertEqual(result, [1, 2, 3])
+
+    @patch('src.services.sheets.reader.find_row_by_date')
+    def test_read_data_range_not_found(self, mock_find_row_by_date):
+        worksheet = MagicMock()
+        details = (worksheet, {}, 0, 'sheet_id', 'ws_name')
+        with patch('src.services.sheets.reader._get_bot_sheet_details', return_value=details):
+            mock_find_row_by_date.return_value = None
+            result = reader.read_data_range('sheet_id', 'ws_name', datetime.date(2025, 7, 16), 0, 2, 'token')
+            self.assertIsNone(result)
+
 if __name__ == '__main__':
     unittest.main()

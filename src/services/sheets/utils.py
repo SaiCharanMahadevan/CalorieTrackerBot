@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 def format_date_for_sheet(dt_obj: datetime.date) -> str:
-    """Formats a date object into the string format used in the sheet (e.g., 'Jul 16')."""
-    return dt_obj.strftime('%b %-d')
+    """Formats a date object into the string format used in the sheet (e.g., 'Jul 16, 2024')."""
+    return dt_obj.strftime('%b %-d, %Y')
 
 def _get_bot_sheet_details(bot_token: str) -> Optional[Tuple[gspread.Worksheet, Dict, int, str, str]]:
     """Fetches bot config and retrieves worksheet, column map, first data row, sheet ID, and worksheet name.
