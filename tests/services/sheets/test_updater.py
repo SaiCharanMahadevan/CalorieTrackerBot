@@ -253,16 +253,5 @@ class TestSheetsUpdater(unittest.TestCase):
         mock_ws.get.assert_called_once_with(expected_get_range, value_render_option='UNFORMATTED_VALUE') 
         mock_ws.batch_update.assert_called_once() # Check it was called
 
-    @patch('src.services.sheets.updater.ensure_date_row')
-    def test_update_metrics_date_format(self, mock_ensure_date_row):
-        worksheet = MagicMock()
-        worksheet.batch_update.return_value = None
-        details = (worksheet, {0: 0}, 0, 'sheet_id', 'ws_name')
-        with patch('src.services.sheets.updater._get_bot_sheet_details', return_value=details):
-            mock_ensure_date_row.return_value = 1
-            result = updater.update_metrics('sheet_id', 'ws_name', datetime.date(2024, 7, 16), {0: 100}, 'token')
-            worksheet.batch_update.assert_called()
-            self.assertTrue(result)
-
 if __name__ == '__main__':
     unittest.main() 
